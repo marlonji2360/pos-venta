@@ -1,0 +1,22 @@
+[2025-12-27 21:16:19] === Iniciando backup automático ===
+[2025-12-27 21:16:19] Directorio de backups: /Users/marlonjimenez/Desktop/pos-abarrotes/backend/scripts/../backups
+[2025-12-27 21:16:19] Archivo: backup_auto_2025-12-27_21-16-19.sql
+[2025-12-27 21:16:19] Ejecutando pg_dump...
+[2025-12-27 21:16:19] ✓ Backup creado exitosamente: backup_auto_2025-12-27_21-16-19.sql ( 80K)
+[2025-12-27 21:16:19] Limpiando backups antiguos (>30 días)...
+[2025-12-27 21:16:19] Backups eliminados: 0
+[2025-12-27 21:16:19] Total de backups disponibles:        1
+[2025-12-27 21:16:19] Espacio usado por backups:  84K
+[2025-12-27 21:16:19] === Backup completado exitosamente ===
+[2025-12-27 21:16:19] 
+[2025-12-28 20:51:59] === Iniciando backup automático ===
+[2025-12-28 20:51:59] Directorio de backups: /Users/marlonjimenez/Desktop/pos-abarrotes/backend/scripts/../backups
+[2025-12-28 20:51:59] Archivo: backup_auto_2025-12-28_20-51-59.sql
+[2025-12-28 20:51:59] Ejecutando pg_dump...
+[2025-12-28 20:51:59] ✓ Backup creado exitosamente: backup_auto_2025-12-28_20-51-59.sql ( 88K)
+[2025-12-28 20:51:59] Limpiando backups antiguos (>30 días)...
+[2025-12-28 20:51:59] Backups eliminados: 0
+[2025-12-28 20:51:59] Total de backups disponibles:        2
+[2025-12-28 20:51:59] Espacio usado por backups: 172K
+[2025-12-28 20:51:59] === Backup completado exitosamente ===
+[2025-12-28 20:51:59] 

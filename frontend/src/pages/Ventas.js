@@ -1,0 +1,1195 @@
+// src/pages/Ventas.js - Layout Vertical
+import React, { useState, useEffect } from 'react';
+import api from '../services/api';
+import { Checkbox, FormControlLabel, Chip, Divider } from '@mui/material';
+import { Percent as PercentIcon } from '@mui/icons-material';
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Button,
+  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  IconButton,
+  Grid,
+  Alert,
+  Autocomplete,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  InputAdornment,
+} from '@mui/material';
+import {
+  Add as AddIcon,
+  Remove as RemoveIcon,
+  Delete as DeleteIcon,
+  ShoppingCart as ShoppingCartIcon,
+  Print as PrintIcon,
+  Check as CheckIcon,
+  Search as SearchIcon,
+  Person as PersonIcon,
+  Warning as WarningIcon,
+} from '@mui/icons-material';
+
+// Estilos para impresión
+const printStyles = `
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+    #ticket-print, #ticket-print * {
+      visibility: visible;
+    }
+    #ticket-print {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+    }
+    .no-print {
+      display: none !important;
+    }
+    @page {
+      margin: 1cm;
+    }
+  }
+`;
+
+const Ventas = () => {
+  const [productos, setProductos] = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [carrito, setCarrito] = useState([]);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
+  const [metodoPago, setMetodoPago] = useState('efectivo');
+  const [montoPagado, setMontoPagado] = useState('');
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [openConfirmar, setOpenConfirmar] = useState(false);
+  const [ventaCompletada, setVentaCompletada] = useState(null);
+  const [productosVendidos, setProductosVendidos] = useState([]);
+  const [infoVenta, setInfoVenta] = useState(null);
+  const [advertenciasStock, setAdvertenciasStock] = useState([]);
+  const [openAdvertencias, setOpenAdvertencias] = useState(false);
+  const [aplicarDescuentosVolumen, setAplicarDescuentosVolumen] = useState(true);
+  const [descuentosCalculados, setDescuentosCalculados] = useState({});
+  const [descuentoAdicional, setDescuentoAdicional] = useState(0);
+  const [porcentajeDescuentoAdicional, setPorcentajeDescuentoAdicional] = useState(0);
+  const [motivoDescuento, setMotivoDescuento] = useState('');
+  const [openDialogDescuento, setOpenDialogDescuento] = useState(false);
+  const [autorizacionPendiente, setAutorizacionPendiente] = useState(null);
+  const [esperandoAutorizacion, setEsperandoAutorizacion] = useState(false);
+
+  useEffect(() => {
+    cargarDatos();
+  }, []);
+
+  useEffect(() => {
+    if (carrito.length > 0) {
+      calcularDescuentosVolumen(carrito);
+    }
+  }, [aplicarDescuentosVolumen]);
+
+  const cargarDatos = async () => {
+    try {
+      const [productosRes, clientesRes] = await Promise.all([
+        api.get('/api/productos?activo=true'),
+        api.get('/api/clientes'),
+      ]);
+      setProductos(productosRes.data.productos);
+      setClientes(clientesRes.data.clientes || []);
+    } catch (err) {
+      setError('Error al cargar datos');
+    }
+  };
+
+  // Función para calcular descuentos por volumen
+  const calcularDescuentosVolumen = async (carritoActual) => {
+    if (!aplicarDescuentosVolumen || carritoActual.length === 0) {
+      setDescuentosCalculados({});
+      return;
+    }
+
+    try {
+      const productosParaCalcular = carritoActual.map(item => ({
+        producto_id: item.producto_id,
+        cantidad: item.cantidad
+      }));
+
+      const response = await api.post('/api/descuentos/calcular', {
+        productos: productosParaCalcular
+      });
+
+      const descuentosMap = {};
+      response.data.productos.forEach(item => {
+        descuentosMap[item.producto_id] = {
+          porcentaje: item.porcentaje_descuento,
+          cantidad_minima: item.cantidad_minima
+        };
+      });
+
+      setDescuentosCalculados(descuentosMap);
+    } catch (error) {
+      console.error('Error al calcular descuentos:', error);
+    }
+  };
+
+  const agregarAlCarrito = () => {
+    if (!productoSeleccionado) return;
+
+    const productoEnCarrito = carrito.find(
+      (item) => item.producto_id === productoSeleccionado.id
+    );
+
+    let nuevoCarrito;
+    if (productoEnCarrito) {
+      nuevoCarrito = carrito.map((item) =>
+        item.producto_id === productoSeleccionado.id
+          ? { ...item, cantidad: item.cantidad + 1 }
+          : item
+      );
+    } else {
+      nuevoCarrito = [
+        ...carrito,
+        {
+          producto_id: productoSeleccionado.id,
+          nombre: productoSeleccionado.nombre,
+          precio_unitario: parseFloat(productoSeleccionado.precio_venta),
+          cantidad: 1,
+        },
+      ];
+    }
+
+    setCarrito(nuevoCarrito);
+    setProductoSeleccionado(null);
+    
+    // Calcular descuentos para el nuevo carrito
+    calcularDescuentosVolumen(nuevoCarrito);
+  };
+
+  const modificarCantidad = (productoId, cantidad) => {
+    if (cantidad <= 0) {
+      eliminarDelCarrito(productoId);
+      return;
+    }
+
+    const nuevoCarrito = carrito.map((item) =>
+      item.producto_id === productoId ? { ...item, cantidad } : item
+    );
+    
+    setCarrito(nuevoCarrito);
+    
+    // Recalcular descuentos
+    calcularDescuentosVolumen(nuevoCarrito);
+  };
+
+  const eliminarDelCarrito = (productoId) => {
+    const nuevoCarrito = carrito.filter((item) => item.producto_id !== productoId);
+    setCarrito(nuevoCarrito);
+    
+    // Recalcular descuentos
+    calcularDescuentosVolumen(nuevoCarrito);
+  };
+
+  const limpiarCarrito = () => {
+    setCarrito([]);
+  };
+
+  const calcularSubtotal = () => {
+    return carrito.reduce((total, item) => {
+      const precioBase = item.precio_unitario * item.cantidad;
+      const descuento = descuentosCalculados[item.producto_id];
+      
+      if (descuento) {
+        const precioConDescuento = precioBase * (1 - descuento.porcentaje / 100);
+        return total + precioConDescuento;
+      }
+      
+      return total + precioBase;
+    }, 0);
+  };
+
+  const calcularTotalDescuentosVolumen = () => {
+    return carrito.reduce((total, item) => {
+      const precioBase = item.precio_unitario * item.cantidad;
+      const descuento = descuentosCalculados[item.producto_id];
+      
+      if (descuento) {
+        const montoDescuento = precioBase * (descuento.porcentaje / 100);
+        return total + montoDescuento;
+      }
+      
+      return total;
+    }, 0);
+  };
+
+  const calcularTotal = () => {
+    const subtotal = calcularSubtotal();
+    return subtotal - descuentoAdicional;
+  };
+
+  const calcularCambio = () => {
+    const pagado = parseFloat(montoPagado) || 0;
+    const total = calcularTotal();
+    return pagado - total;
+  };
+
+  // Funciones para descuento adicional
+  const handleMontoDescuentoAdicionalChange = (valor) => {
+    const monto = parseFloat(valor) || 0;
+    const subtotal = calcularSubtotal();
+    
+    if (monto > subtotal) {
+      setError('El descuento no puede ser mayor al subtotal');
+      return;
+    }
+    
+    setDescuentoAdicional(monto);
+    
+    if (subtotal > 0) {
+      const porcentaje = (monto / subtotal) * 100;
+      setPorcentajeDescuentoAdicional(porcentaje.toFixed(2));
+    }
+  };
+
+  const handlePorcentajeDescuentoAdicionalChange = (valor) => {
+    const porcentaje = parseFloat(valor) || 0;
+    
+    if (porcentaje > 100) {
+      setError('El porcentaje no puede ser mayor a 100%');
+      return;
+    }
+    
+    setPorcentajeDescuentoAdicional(porcentaje);
+    
+    const subtotal = calcularSubtotal();
+    const monto = (subtotal * porcentaje) / 100;
+    setDescuentoAdicional(parseFloat(monto.toFixed(2)));
+  };
+
+  const handleSolicitarDescuentoAdicional = async () => {
+  try {
+    if (descuentoAdicional <= 0) {
+      setError('Ingresa un monto de descuento válido');
+      return;
+    }
+
+    if (!motivoDescuento.trim()) {
+      setError('Ingresa el motivo del descuento');
+      return;
+    }
+
+    const response = await api.post('/api/descuentos/solicitar-autorizacion', {
+      monto_descuento: descuentoAdicional,
+      porcentaje_descuento: porcentajeDescuentoAdicional,
+      motivo: motivoDescuento
+    });
+
+    const autorizacionId = response.data.autorizacion.id;
+    setAutorizacionPendiente(autorizacionId);
+    setEsperandoAutorizacion(true);
+    setOpenDialogDescuento(false);
+    setSuccess('Solicitud enviada. Esperando autorización del gerente...');
+
+    console.log('📤 Autorización creada con ID:', autorizacionId);
+
+    // Polling para verificar autorización cada 2 segundos
+    const checkAutorizacion = setInterval(async () => {
+      console.log('🔄 Verificando autorización ID:', autorizacionId);
+      
+      try {
+        const authResponse = await api.get('/api/descuentos/autorizaciones');
+        console.log('📋 Total autorizaciones:', authResponse.data.autorizaciones.length);
+        
+        const miAutorizacion = authResponse.data.autorizaciones.find(
+          a => a.id === autorizacionId
+        );
+
+        console.log('✅ Mi autorización encontrada:', miAutorizacion);
+
+        if (miAutorizacion && miAutorizacion.estado !== 'pendiente') {
+          console.log('🎉 Estado cambió a:', miAutorizacion.estado);
+          clearInterval(checkAutorizacion);
+          setEsperandoAutorizacion(false);
+
+          if (miAutorizacion.estado === 'aprobado') {
+            setSuccess('✅ ¡Descuento aprobado! Puedes completar la venta');
+            setError(null);
+          } else {
+            setError('❌ Descuento rechazado por el gerente');
+            setSuccess(null);
+            setDescuentoAdicional(0);
+            setPorcentajeDescuentoAdicional(0);
+            setAutorizacionPendiente(null);
+            setMotivoDescuento('');
+          }
+        } else {
+          console.log('⏳ Todavía pendiente...');
+        }
+      } catch (err) {
+        console.error('❌ Error verificando autorización:', err);
+      }
+    }, 2000);
+
+    // Limpiar después de 5 minutos
+    setTimeout(() => {
+      clearInterval(checkAutorizacion);
+      console.log('⏱️ Timeout de 5 minutos alcanzado');
+    }, 300000);
+
+  } catch (err) {
+    setError('Error al solicitar descuento');
+    console.error(err);
+  }
+};
+
+  const handleConfirmarVenta = () => {
+    console.log('=== EJECUTANDO handleConfirmarVenta ===');
+  console.log('Carrito:', carrito);
+  console.log('esperandoAutorizacion:', esperandoAutorizacion);
+  console.log('descuentoAdicional:', descuentoAdicional);
+    if (carrito.length === 0) {
+      setError('El carrito está vacío');
+      return;
+    }
+
+    if (esperandoAutorizacion) {
+      setError('Esperando autorización de descuento. No se puede completar la venta aún.');
+      return;
+    }
+
+    if (metodoPago === 'efectivo' && parseFloat(montoPagado) < calcularTotal()) {
+      setError('El monto pagado es insuficiente');
+      return;
+    }
+
+    setOpenConfirmar(true);
+  };
+
+  const finalizarVenta = async () => {
+    try {
+      const ventaData = {
+        cliente_id: clienteSeleccionado?.id || null,
+        metodo_pago: metodoPago,
+        subtotal: calcularSubtotal(),
+        iva: 0, // IVA incluido en precios
+        total: calcularTotal(),
+        productos: carrito.map((item) => {
+          const descuento = descuentosCalculados[item.producto_id];
+          return {
+            producto_id: item.producto_id,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            descuento_porcentaje: descuento ? descuento.porcentaje : 0
+          };
+        }),
+        aplicar_descuentos_volumen: aplicarDescuentosVolumen,
+        descuento_adicional: descuentoAdicional,
+        autorizacion_id: autorizacionPendiente
+      };
+
+      console.log('=== DATOS DE VENTA ===');
+console.log('ventaData:', ventaData);
+console.log('autorizacionPendiente:', autorizacionPendiente);
+console.log('esperandoAutorizacion:', esperandoAutorizacion);
+console.log('descuentoAdicional:', descuentoAdicional);
+
+      const response = await api.post('/api/ventas', ventaData);
+
+      // Verificar si hay advertencias de stock
+      if (response.data.stock_negativo && response.data.advertencias) {
+        setAdvertenciasStock(response.data.advertencias);
+        setOpenAdvertencias(true);
+      }
+
+      // Guardar productos vendidos ANTES de limpiar
+      setProductosVendidos([...carrito]);
+      setInfoVenta({
+        metodoPago: metodoPago,
+        cliente: clienteSeleccionado,
+        montoPagado: montoPagado,
+        cambio: calcularCambio()
+      });
+      setVentaCompletada(response.data.venta);
+      setSuccess('Venta registrada exitosamente. Folio: ${response.data.venta.folio}');
+      
+      setCarrito([]);
+      setClienteSeleccionado(null);
+      setMontoPagado('');
+      setOpenConfirmar(false);
+      
+      // Limpiar descuentos
+      setDescuentosCalculados({});
+      setDescuentoAdicional(0);
+      setPorcentajeDescuentoAdicional(0);
+      setMotivoDescuento('');
+      setAutorizacionPendiente(null);
+      setEsperandoAutorizacion(false);
+
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al registrar venta');
+      setOpenConfirmar(false);
+    }
+  };
+
+  const nuevaVenta = () => {
+    setVentaCompletada(null);
+    setProductosVendidos([]);
+    setInfoVenta(null);
+    setSuccess(null);
+    setCarrito([]);
+    setClienteSeleccionado(null);
+    setMontoPagado('');
+    
+    // Limpiar descuentos
+    setDescuentosCalculados({});
+    setDescuentoAdicional(0);
+    setPorcentajeDescuentoAdicional(0);
+    setMotivoDescuento('');
+    setAutorizacionPendiente(null);
+    setEsperandoAutorizacion(false);
+  };
+
+  const imprimirTicket = () => {
+    window.print();
+  };
+
+  return (
+    <Box>
+      <style>{printStyles}</style>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Punto de Venta
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Registra nuevas ventas de forma rápida
+          </Typography>
+        </Box>
+        {ventaCompletada && (
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={nuevaVenta}>
+            Nueva Venta
+          </Button>
+        )}
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+          {success}
+        </Alert>
+      )}
+
+      {ventaCompletada ? (
+        <Card id="ticket-print">
+          <CardContent>
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <CheckIcon sx={{ fontSize: 60, color: 'success.main', mb: 2 }} />
+              <Typography variant="h5" gutterBottom>
+                ¡Venta Completada!
+              </Typography>
+              <Typography variant="h6" color="text.secondary">
+                Folio: {ventaCompletada.folio}
+              </Typography>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Producto</TableCell>
+                    <TableCell align="right">Cant.</TableCell>
+                    <TableCell align="right">Precio</TableCell>
+                    <TableCell align="right">Total</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {productosVendidos.map((item, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{item.nombre}</TableCell>
+                      <TableCell align="right">{item.cantidad}</TableCell>
+                      <TableCell align="right">Q{item.precio_unitario.toFixed(2)}</TableCell>
+                      <TableCell align="right">
+                        Q{(item.precio_unitario * item.cantidad).toFixed(2)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Box sx={{ mt: 3 }}>
+              {infoVenta?.cliente && (
+                <Box sx={{ mb: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                  <Typography variant="subtitle2" color="text.secondary">Cliente:</Typography>
+                  <Typography variant="body1" fontWeight="medium">{infoVenta.cliente.nombre}</Typography>
+                </Box>
+              )}
+              
+              <Box sx={{ mb: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                <Typography variant="subtitle2" color="text.secondary">Método de Pago:</Typography>
+                <Typography variant="body1" fontWeight="medium" sx={{ textTransform: 'capitalize' }}>
+                  {infoVenta?.metodoPago === 'efectivo' ? '💵 Efectivo' : 
+                   infoVenta?.metodoPago === 'tarjeta' ? '💳 Tarjeta' : '🏦 Transferencia'}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6">Total:</Typography>
+                <Typography variant="h6">
+                  Q{productosVendidos.reduce((sum, item) => sum + (item.precio_unitario * item.cantidad), 0).toFixed(2)}
+                </Typography>
+              </Box>
+              {infoVenta?.metodoPago === 'efectivo' && infoVenta?.montoPagado && (
+                <>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography>Pagado:</Typography>
+                    <Typography>Q{parseFloat(infoVenta.montoPagado).toFixed(2)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="h6">Cambio:</Typography>
+                    <Typography variant="h6" color="success.main">
+                      Q{infoVenta.cambio.toFixed(2)}
+                    </Typography>
+                  </Box>
+                </>
+              )}
+            </Box>
+
+            <Box className="no-print" sx={{ display: 'flex', gap: 2, mt: 3 }}>
+              <Button fullWidth variant="outlined" startIcon={<PrintIcon />} onClick={imprimirTicket}>
+                Imprimir Ticket
+              </Button>
+              <Button fullWidth variant="contained" onClick={nuevaVenta}>
+                Nueva Venta
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      ) : (
+        <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
+          <Card sx={{ mb: 3 }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+                <SearchIcon /> Buscar Productos
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={9}>
+                  <Autocomplete
+                    fullWidth
+                    options={productos}
+                    getOptionLabel={(option) => option.nombre}
+                    value={productoSeleccionado}
+                    onChange={(event, newValue) => setProductoSeleccionado(newValue)}
+                    renderOption={(props, option) => (
+                      <Box component="li" {...props} sx={{ py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                        <Box sx={{ width: '100%' }}>
+                          <Typography variant="body1" fontWeight="medium" gutterBottom>
+                            {option.nombre}
+                          </Typography>
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Chip 
+                              label={`Stock: ${option.stock_actual}`} 
+                              size="small" 
+                              color={option.stock_actual > option.stock_minimo ? 'success' : 'warning'}
+                            />
+                            <Chip 
+                              label={`Q${parseFloat(option.precio_venta).toFixed(2)}`} 
+                              size="small" 
+                              color="primary"
+                            />
+                            {option.codigo_barras && (
+                              <Chip 
+                                label={option.codigo_barras} 
+                                size="small" 
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                    )}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder="Escribe el nombre del producto o escanea código de barras..."
+                        size="large"
+                        InputProps={{
+                          ...params.InputProps,
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <SearchIcon sx={{ fontSize: 28 }} />
+                            </InputAdornment>
+                          ),
+                          sx: { fontSize: '1.1rem', py: 1.5 }
+                        }}
+                      />
+                    )}
+                  />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    size="large"
+                    onClick={agregarAlCarrito}
+                    disabled={!productoSeleccionado}
+                    startIcon={<AddIcon />}
+                    sx={{ height: '64px', fontSize: '1rem' }}
+                  >
+                    Agregar al Carrito
+                  </Button>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ mb: 3 }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ShoppingCartIcon /> Carrito ({carrito.length})
+                </Typography>
+                {carrito.length > 0 && (
+                  <Button size="small" color="error" onClick={limpiarCarrito}>
+                    Limpiar todo
+                  </Button>
+                )}
+              </Box>
+
+              {carrito.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <ShoppingCartIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+                  <Typography variant="h6" color="text.secondary" gutterBottom>
+                    El carrito está vacío
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Busca y agrega productos para comenzar
+                  </Typography>
+                </Box>
+              ) : (
+                <TableContainer>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Producto</TableCell>
+                        <TableCell align="center" width={200}>Cantidad</TableCell>
+                        <TableCell align="right">Precio</TableCell>
+                        <TableCell align="right">Subtotal</TableCell>
+                        <TableCell align="center" width={80}></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {carrito.map((item) => {
+                        const descuento = descuentosCalculados[item.producto_id];
+                        const precioBase = item.precio_unitario * item.cantidad;
+                        const precioConDescuento = descuento 
+                          ? precioBase * (1 - descuento.porcentaje / 100)
+                          : precioBase;
+
+                        return (
+                          <TableRow key={item.producto_id}>
+                            <TableCell>
+                              <Typography variant="body1" fontWeight="medium">
+                                {item.nombre}
+                              </Typography>
+                              {descuento && (
+                                <Chip 
+                                  label={`-${descuento.porcentaje}% descuento`} 
+                                  size="small" 
+                                  color="success"
+                                  sx={{ mt: 0.5 }}
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell align="center">
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => modificarCantidad(item.producto_id, item.cantidad - 1)}
+                                  sx={{ bgcolor: 'action.hover' }}
+                                >
+                                  <RemoveIcon />
+                                </IconButton>
+                                <Typography sx={{ minWidth: 40, textAlign: 'center', fontWeight: 'bold', fontSize: '1rem' }}>
+                                  {item.cantidad}
+                                </Typography>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => modificarCantidad(item.producto_id, item.cantidad + 1)}
+                                  sx={{ bgcolor: 'action.hover' }}
+                                >
+                                  <AddIcon />
+                                </IconButton>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">
+                              Q{item.precio_unitario.toFixed(2)}
+                            </TableCell>
+                            <TableCell align="right">
+                              {descuento && (
+                                <Typography 
+                                  variant="caption" 
+                                  sx={{ textDecoration: 'line-through', color: 'text.secondary', display: 'block' }}
+                                >
+                                  Q{precioBase.toFixed(2)}
+                                </Typography>
+                              )}
+                              <Typography fontWeight="bold" color={descuento ? 'success.main' : 'primary'}>
+                                Q{precioConDescuento.toFixed(2)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => eliminarDelCarrito(item.producto_id)}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent sx={{ p: 3 }}>
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PersonIcon /> Cliente
+                  </Typography>
+                  <Autocomplete
+                    options={clientes}
+                    getOptionLabel={(option) => option.nombre}
+                    value={clienteSeleccionado}
+                    onChange={(event, newValue) => setClienteSeleccionado(newValue)}
+                    renderInput={(params) => (
+                      <TextField 
+                        {...params} 
+                        label="Cliente"
+                        placeholder="Seleccionar cliente" 
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          ...params.InputProps,
+                          sx: { 
+                            fontSize: '1.1rem', 
+                            py: 1.5,
+                            '& input': { py: 1 }
+                          }
+                        }}
+                      />
+                    )}
+                  />
+                  
+                  <FormControlLabel
+  control={
+    <Checkbox
+      checked={aplicarDescuentosVolumen}
+      onChange={(e) => setAplicarDescuentosVolumen(e.target.checked)}
+    />
+  }
+  label="Aplicar descuentos por volumen"
+  sx={{ mt: 2 }}
+/>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Typography variant="h6" gutterBottom>
+                    Método de Pago
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
+                    <Chip
+                      label="💵 Efectivo"
+                      onClick={() => setMetodoPago('efectivo')}
+                      color={metodoPago === 'efectivo' ? 'primary' : 'default'}
+                      sx={{ flex: 1, py: 2.5, fontSize: '1rem' }}
+                    />
+                    <Chip
+                      label="💳 Tarjeta"
+                      onClick={() => setMetodoPago('tarjeta')}
+                      color={metodoPago === 'tarjeta' ? 'primary' : 'default'}
+                      sx={{ flex: 1, py: 2.5, fontSize: '1rem' }}
+                    />
+                    <Chip
+                      label="🏦 Transfer."
+                      onClick={() => setMetodoPago('transferencia')}
+                      color={metodoPago === 'transferencia' ? 'primary' : 'default'}
+                      sx={{ flex: 1, py: 2.5, fontSize: '1rem' }}
+                    />
+                  </Box>
+
+                  {metodoPago === 'efectivo' ? (
+                    <>
+                      <TextField
+                        fullWidth
+                        label="Monto Recibido"
+                        type="number"
+                        value={montoPagado}
+                        onChange={(e) => setMontoPagado(e.target.value)}
+                        InputProps={{
+                          startAdornment: <InputAdornment position="start">Q</InputAdornment>,
+                          sx: { 
+                            fontSize: '1.1rem',
+                            py: 1,
+                            '& input': { py: 1.5 }
+                          }
+                        }}
+                        InputLabelProps={{ shrink: true }}
+                        sx={{ mb: 2 }}
+                      />
+                      {montoPagado && (
+                        <Box sx={{ 
+                          bgcolor: calcularCambio() >= 0 ? 'success.light' : 'error.light', 
+                          p: 2, 
+                          borderRadius: 2 
+                        }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography fontWeight="medium">Cambio:</Typography>
+                            <Typography variant="h6" fontWeight="bold">
+                              Q{calcularCambio().toFixed(2)}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      )}
+                    </>
+                  ) : (
+                    <Box sx={{ 
+                      bgcolor: 'grey.50', 
+                      p: 3, 
+                      borderRadius: 2, 
+                      minHeight: 100,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {metodoPago === 'tarjeta' ? '💳 Procesar con tarjeta' : '🏦 Procesar transferencia'}
+                      </Typography>
+                    </Box>
+                  )}
+                </Grid>
+
+                <Grid item xs={12} md={3}>
+                  <Typography variant="h6" gutterBottom>
+                    Resumen
+                  </Typography>
+                  <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2, border: 1, borderColor: 'grey.300' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                      <Typography>Subtotal:</Typography>
+                      <Typography>Q{calcularSubtotal().toFixed(2)}</Typography>
+                    </Box>
+
+                    {calcularTotalDescuentosVolumen() > 0 && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography color="success.main" fontSize="0.9rem">
+                          Desc. Volumen:
+                        </Typography>
+                        <Typography color="success.main" fontWeight="bold">
+                          -Q{calcularTotalDescuentosVolumen().toFixed(2)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {descuentoAdicional > 0 && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography color="warning.main" fontSize="0.9rem">
+                          Desc. Adicional {esperandoAutorizacion && '⏳'}:
+                        </Typography>
+                        <Typography color="warning.main" fontWeight="bold">
+                          -Q{descuentoAdicional.toFixed(2)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    <Divider sx={{ my: 1.5 }} />
+
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                      <Typography variant="h6" fontWeight="bold">TOTAL:</Typography>
+                      <Typography variant="h6" fontWeight="bold" color="success.dark">
+                        Q{calcularTotal().toFixed(2)}
+                      </Typography>
+                    </Box>
+
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      color="secondary"
+                      startIcon={<PercentIcon />}
+                      onClick={() => setOpenDialogDescuento(true)}
+                      disabled={carrito.length === 0}
+                      size="small"
+                    >
+                      Descuento Adicional
+                    </Button>
+
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+                      * IVA incluido
+                    </Typography>
+                  </Box>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <Button
+                      variant="contained"
+                      size="large"
+                      onClick={handleConfirmarVenta}
+                      disabled={carrito.length === 0}
+                      startIcon={<CheckIcon />}
+                      sx={{ py: 2.5, px: 8, fontSize: '1.2rem' }}
+                    >
+                      Finalizar Venta
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
+
+      <Dialog open={openConfirmar} onClose={() => setOpenConfirmar(false)}>
+        <DialogTitle>Confirmar Venta</DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            ¿Estás seguro de completar esta venta?
+          </Typography>
+          <Box sx={{ mt: 2, bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Total: <strong>Q{calcularTotal().toFixed(2)}</strong>
+            </Typography>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Método de pago: <strong>{metodoPago}</strong>
+            </Typography>
+            {clienteSeleccionado && (
+              <Typography variant="body2" color="text.secondary">
+                Cliente: <strong>{clienteSeleccionado.nombre}</strong>
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenConfirmar(false)}>Cancelar</Button>
+          <Button onClick={finalizarVenta} variant="contained" autoFocus>
+            Confirmar Venta
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo: Solicitar Descuento Adicional */}
+      <Dialog 
+        open={openDialogDescuento} 
+        onClose={() => setOpenDialogDescuento(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: 'warning.main', color: 'white' }}>
+          🎁 Solicitar Descuento Adicional
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>⚠️ Requiere Autorización</strong>
+            </Typography>
+            <Typography variant="caption">
+              Este descuento debe ser aprobado por un Administrador o Gerente antes de completar la venta.
+            </Typography>
+          </Alert>
+
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Subtotal actual: <strong>Q{calcularSubtotal().toFixed(2)}</strong>
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Monto de Descuento (Q)"
+                type="number"
+                value={descuentoAdicional}
+                onChange={(e) => handleMontoDescuentoAdicionalChange(e.target.value)}
+                inputProps={{ min: 0, step: 0.01 }}
+                helperText={`Máximo: Q${calcularSubtotal().toFixed(2)}`}
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Porcentaje (%)"
+                type="number"
+                value={porcentajeDescuentoAdicional}
+                onChange={(e) => handlePorcentajeDescuentoAdicionalChange(e.target.value)}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                helperText="O ingresa el porcentaje"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Motivo del Descuento"
+                multiline
+                rows={3}
+                value={motivoDescuento}
+                onChange={(e) => setMotivoDescuento(e.target.value)}
+                placeholder="Ej: Cliente frecuente, compra por volumen, promoción especial..."
+                required
+              />
+            </Grid>
+
+            {descuentoAdicional > 0 && (
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  <Typography variant="body2" fontWeight="bold">
+                    Vista Previa:
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                    <Typography variant="body2">Subtotal:</Typography>
+                    <Typography variant="body2">Q{calcularSubtotal().toFixed(2)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color="success.main">
+                      Descuento ({porcentajeDescuentoAdicional}%):
+                    </Typography>
+                    <Typography variant="body2" color="success.main">
+                      -Q{descuentoAdicional.toFixed(2)}
+                    </Typography>
+                  </Box>
+                  <Divider sx={{ my: 0.5 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body1" fontWeight="bold">Total Final:</Typography>
+                    <Typography variant="body1" fontWeight="bold" color="primary">
+                      Q{(calcularSubtotal() - descuentoAdicional).toFixed(2)}
+                    </Typography>
+                  </Box>
+                </Alert>
+              </Grid>
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setOpenDialogDescuento(false);
+              setDescuentoAdicional(0);
+              setPorcentajeDescuentoAdicional(0);
+              setMotivoDescuento('');
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleSolicitarDescuentoAdicional}
+            variant="contained"
+            disabled={!motivoDescuento || descuentoAdicional <= 0}
+          >
+            Solicitar Autorización
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de Advertencias de Stock */}
+      <DialogAdvertenciasStock
+        open={openAdvertencias}
+        onClose={() => setOpenAdvertencias(false)}
+        advertencias={advertenciasStock}
+        onConfirm={() => {
+          setOpenAdvertencias(false);
+          setSuccess('Venta registrada. Revisar notificaciones para productos con stock negativo.');
+        }}
+      />
+    </Box>
+  );
+};
+
+// Diálogo de Advertencias de Stock
+const DialogAdvertenciasStock = ({ open, onClose, advertencias, onConfirm }) => {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ bgcolor: 'warning.main', color: 'white' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon />
+          <Typography variant="h6">⚠️ Advertencia: Stock Insuficiente</Typography>
+        </Box>
+      </DialogTitle>
+      <DialogContent sx={{ mt: 2 }}>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Los siguientes productos se vendieron sin stock suficiente. El stock quedará en negativo.
+        </Alert>
+        
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Producto</TableCell>
+                <TableCell align="center">Stock Antes</TableCell>
+                <TableCell align="center">Vendido</TableCell>
+                <TableCell align="center">Faltante</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {advertencias.map((adv, index) => (
+                <TableRow key={index}>
+                  <TableCell>{adv.producto_nombre}</TableCell>
+                  <TableCell align="center">
+                    <Chip 
+                      label={adv.stock_actual} 
+                      size="small" 
+                      color="error"
+                    />
+                  </TableCell>
+                  <TableCell align="center">{adv.cantidad_solicitada}</TableCell>
+                  <TableCell align="center">
+                    <Chip 
+                      label={`-${adv.faltante}`} 
+                      size="small" 
+                      color="warning"
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <Alert severity="info" sx={{ mt: 2 }}>
+          <Typography variant="body2">
+            ✅ Se ha creado una notificación automática para reabastecer estos productos.
+          </Typography>
+        </Alert>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onConfirm} variant="contained" color="warning" fullWidth>
+          Entendido
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export default Ventas;

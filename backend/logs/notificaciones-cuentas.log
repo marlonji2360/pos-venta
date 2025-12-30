@@ -1,0 +1,52 @@
+========================================
+[2025-12-28 20:52:17] Iniciando job de notificaciones de cuentas por pagar
+🔔 Generando notificaciones de cuentas por pagar...
+❌ Error en query: role "postgres" does not exist
+Query: 
+      SELECT 
+        cpp.id,
+        cpp.folio,
+        cpp.fecha_vencimiento,
+        cpp.saldo_pendiente,
+        cpp.dias_credito,
+        p.nombre as proveedor_nombre,
+        (cpp.fecha_vencimiento - CURRENT_DATE) as dias_restantes
+      FROM cuentas_por_pagar cpp
+      JOIN proveedores p ON cpp.proveedor_id = p.id
+      WHERE cpp.estado IN ('pendiente', 'parcial')
+      AND cpp.fecha_vencimiento BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+      AND NOT EXISTS (
+        SELECT 1 FROM notificaciones n
+        WHERE n.tipo = 'cuenta_por_vencer'
+        AND n.datos->>'cuenta_id' = cpp.id::text
+        AND n.fecha::date = CURRENT_DATE
+      )
+    
+Params: undefined
+❌ Error al generar notificaciones: error: role "postgres" does not exist
+    at /Users/marlonjimenez/Desktop/pos-abarrotes/backend/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async query (/Users/marlonjimenez/Desktop/pos-abarrotes/backend/src/config/database.js:45:17)
+    at async generarNotificacionesCuentasPorPagar (/Users/marlonjimenez/Desktop/pos-abarrotes/backend/src/jobs/notificaciones-cuentas-por-pagar.js:11:26) {
+  length: 100,
+  severity: 'FATAL',
+  code: '28000',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'miscinit.c',
+  line: '770',
+  routine: 'InitializeSessionUserId'
+}
+🎉 Job completado
+[2025-12-28 20:52:18] ✅ Job completado exitosamente
+========================================
+
