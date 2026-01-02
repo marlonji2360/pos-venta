@@ -99,27 +99,28 @@ router.get('/productos-vendidos', verificarRol('Administrador', 'Gerente'), asyn
         error: 'Se requieren fecha_inicio y fecha_fin' 
       });
     }
-
-    const result = await query(`
-      SELECT 
-        p.id,
-        p.nombre,
-        p.codigo_barras,
-        p.categoria_id,
-        SUM(dv.cantidad) as total_vendido,
-        COUNT(DISTINCT v.id) as num_ventas,
-        COALESCE(SUM(dv.subtotal), 0) as monto_total,
-        p.precio_venta,
-        p.stock_actual
-      FROM detalle_ventas dv
-      JOIN productos p ON dv.producto_id = p.id
-      JOIN ventas v ON dv.venta_id = v.id
-      WHERE v.fecha_venta BETWEEN $1 AND $2
-      AND v.estado = 'completada'
-      GROUP BY p.id, p.nombre, p.codigo_barras, p.categoria_id, p.precio_venta, p.stock_actual
-      ORDER BY total_vendido DESC
-      LIMIT $3
-    `, [fecha_inicio, fecha_fin, limit]);
+const result = await query(`
+  SELECT 
+    p.id,
+    p.nombre,
+    p.codigo_barras,
+    p.categoria_id,
+    c.nombre as categoria_nombre,
+    SUM(dv.cantidad) as total_vendido,
+    COUNT(DISTINCT v.id) as num_ventas,
+    COALESCE(SUM(dv.subtotal), 0) as monto_total,
+    p.precio_venta,
+    p.stock_actual
+  FROM detalle_ventas dv
+  JOIN productos p ON dv.producto_id = p.id
+  LEFT JOIN categorias c ON p.categoria_id = c.id
+  JOIN ventas v ON dv.venta_id = v.id
+  WHERE v.fecha_venta BETWEEN $1 AND $2
+  AND v.estado = 'completada'
+  GROUP BY p.id, p.nombre, p.codigo_barras, p.categoria_id, c.nombre, p.precio_venta, p.stock_actual
+  ORDER BY total_vendido DESC
+  LIMIT $3
+`, [fecha_inicio, fecha_fin, limit]);
 
     res.json({
       productos: result.rows
@@ -150,27 +151,29 @@ router.get('/inventario', verificarRol('Administrador', 'Gerente'), async (req, 
 
     // Inventario general
     const inventarioResult = await query(`
-      SELECT 
-        p.id,
-        p.nombre,
-        p.codigo_barras,
-        p.categoria_id,
-        p.stock_actual,
-        p.stock_minimo,
-        p.stock_maximo,
-        p.precio_compra,
-        p.precio_venta,
-        p.unidad_medida,
-        (p.stock_actual * p.precio_compra) as valor_inventario,
-        CASE 
-          WHEN p.stock_actual <= p.stock_minimo THEN 'bajo'
-          WHEN p.stock_actual >= p.stock_maximo THEN 'alto'
-          ELSE 'normal'
-        END as estado_stock
-      FROM productos p
-      ${whereClause}
-      ORDER BY p.nombre
-    `, params);
+  SELECT 
+    p.id,
+    p.nombre,
+    p.codigo_barras,
+    p.categoria_id,
+    c.nombre as categoria_nombre,
+    p.stock_actual,
+    p.stock_minimo,
+    p.stock_maximo,
+    p.precio_compra,
+    p.precio_venta,
+    p.unidad_medida,
+    (p.stock_actual * p.precio_compra) as valor_inventario,
+    CASE 
+      WHEN p.stock_actual <= p.stock_minimo THEN 'bajo'
+      WHEN p.stock_actual >= p.stock_maximo THEN 'alto'
+      ELSE 'normal'
+    END as estado_stock
+  FROM productos p
+  LEFT JOIN categorias c ON p.categoria_id = c.id
+  ${whereClause}
+  ORDER BY p.nombre
+`, params);
 
     // Resumen por categoría
     const resumenCategoriaResult = await query(`
@@ -269,28 +272,29 @@ router.get('/ganancias', verificarRol('Administrador', 'Gerente'), async (req, r
 
     // Ganancias por producto
     const result = await query(`
-      SELECT 
-        p.id,
-        p.nombre,
-        p.categoria_id,
-        SUM(dv.cantidad) as cantidad_vendida,
-        p.precio_compra,
-        p.precio_venta,
-        (p.precio_venta - p.precio_compra) as ganancia_unitaria,
-        SUM(dv.cantidad * p.precio_venta) as ingreso_total,
-        SUM(dv.cantidad * p.precio_compra) as costo_total,
-        SUM(dv.cantidad * (p.precio_venta - p.precio_compra)) as ganancia_total
-      FROM detalle_ventas dv
-      JOIN productos p ON dv.producto_id = p.id
-      JOIN ventas v ON dv.venta_id = v.id
-      WHERE v.fecha_venta BETWEEN $1 AND $2
-      AND v.estado = 'completada'
-      GROUP BY p.id, p.nombre, p.categoria_id, p.precio_compra, p.precio_venta
-      ORDER BY ganancia_total DESC
-    `, [fecha_inicio, fecha_fin]);
+  SELECT 
+    p.id,
+    p.nombre,
+    p.categoria_id,
+    c.nombre as categoria_nombre,
+    SUM(dv.cantidad) as cantidad_vendida,
+    p.precio_compra,
+    p.precio_venta,
+    (p.precio_venta - p.precio_compra) as ganancia_unitaria,
+    SUM(dv.cantidad * p.precio_venta) as ingreso_total,
+    SUM(dv.cantidad * p.precio_compra) as costo_total,
+    SUM(dv.cantidad * (p.precio_venta - p.precio_compra)) as ganancia_total
+  FROM detalle_ventas dv
+  JOIN productos p ON dv.producto_id = p.id
+  LEFT JOIN categorias c ON p.categoria_id = c.id
+  JOIN ventas v ON dv.venta_id = v.id
+  WHERE v.fecha_venta BETWEEN $1 AND $2
+  AND v.estado = 'completada'
+  GROUP BY p.id, p.nombre, p.categoria_id, c.nombre, p.precio_compra, p.precio_venta
+  ORDER BY ganancia_total DESC
+`, [fecha_inicio, fecha_fin]);
 
-    // Resumen general
-    const resumenResult = await query(`
+const resumenResult = await query(`
       SELECT 
         COALESCE(SUM(dv.cantidad * p.precio_venta), 0) as ingreso_total,
         COALESCE(SUM(dv.cantidad * p.precio_compra), 0) as costo_total,
@@ -329,13 +333,17 @@ router.get('/movimientos', verificarRol('Administrador', 'Gerente'), async (req,
     const { fecha_inicio, fecha_fin, tipo_movimiento, limit = 100 } = req.query;
 
     if (!fecha_inicio || !fecha_fin) {
-      return res.status(400).json({ 
-        error: 'Se requieren fecha_inicio y fecha_fin' 
+      return res.status(400).json({
+        error: 'Se requieren fecha_inicio y fecha_fin'
       });
     }
 
+    // Convertir fechas para incluir todo el día
+    const fechaInicioCompleta = `${fecha_inicio} 00:00:00`;
+    const fechaFinCompleta = `${fecha_fin} 23:59:59`;
+
     let whereClause = 'WHERE m.created_at BETWEEN $1 AND $2';
-    const params = [fecha_inicio, fecha_fin];
+    const params = [fechaInicioCompleta, fechaFinCompleta];
     let paramCount = 3;
 
     if (tipo_movimiento) {
@@ -348,7 +356,7 @@ router.get('/movimientos', verificarRol('Administrador', 'Gerente'), async (req,
     params.push(limit);
 
     const result = await query(`
-      SELECT 
+      SELECT
         m.id,
         m.created_at as fecha,
         m.tipo_movimiento,
@@ -370,8 +378,8 @@ router.get('/movimientos', verificarRol('Administrador', 'Gerente'), async (req,
 
   } catch (error) {
     console.error('Error al generar reporte de movimientos:', error);
-    res.status(500).json({ 
-      error: 'Error al generar reporte de movimientos' 
+    res.status(500).json({
+      error: 'Error al generar reporte de movimientos'
     });
   }
 });

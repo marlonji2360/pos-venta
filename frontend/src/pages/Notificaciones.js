@@ -24,6 +24,7 @@ import {
   CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { MonetizationOn as MonetizationOnIcon } from '@mui/icons-material';
 
 const Notificaciones = () => {
   const [loading, setLoading] = useState(true);
@@ -59,6 +60,10 @@ const Notificaciones = () => {
         return <LocalShippingIcon />;
       case 'sin_stock':
         return <ErrorIcon />;
+      case 'solicitud_descuento':
+        return <CheckCircleIcon />;
+        case 'gasto_por_vencer':
+  return <MonetizationOnIcon />;
       default:
         return <WarningIcon />;
     }
@@ -90,6 +95,12 @@ const Notificaciones = () => {
       case 'pedido_pendiente':
         navigate('/pedidos');
         break;
+      case 'solicitud_descuento':
+        navigate('/autorizaciones-descuento');
+        break;
+      case 'gasto_por_vencer':
+        navigate('/gastos-fijos');
+      break;
       default:
         break;
     }

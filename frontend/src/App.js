@@ -21,8 +21,10 @@ import CuentasPorPagar from './pages/CuentasPorPagar';
 import ReporteCuentasPorPagar from './pages/ReporteCuentasPorPagar';
 import GestionDescuentos from './pages/GestionDescuentos';
 import AutorizacionesDescuento from './pages/AutorizacionesDescuento';
-
-
+import GastosFijos from './pages/GastosFijos';
+import Envios from './pages/Envios';
+import DevolucionesClientes from './pages/DevolucionesClientes';
+import DevolucionesProveedores from './pages/DevolucionesProveedores';
 
 const theme = createTheme({
   palette: {
@@ -78,6 +80,10 @@ function App() {
               <Route path="reporte-cuentas-por-pagar" element={<ReporteCuentasPorPagar />} />
               <Route path="gestion-descuentos" element={<GestionDescuentos />} />
               <Route path="autorizaciones-descuento" element={<AutorizacionesDescuento />} />
+              <Route path="gastos-fijos" element={<GastosFijos />} />
+              <Route path="envios" element={<Envios />} />
+              <Route path="devoluciones-clientes" element={<DevolucionesClientes />} />
+              <Route path="devoluciones-proveedores" element={<DevolucionesProveedores />} />
             </Route>
           </Routes>
         </BrowserRouter>

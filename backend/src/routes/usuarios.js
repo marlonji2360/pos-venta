@@ -9,6 +9,25 @@ const { verificarToken, verificarRol } = require('../middleware/auth');
 router.use(verificarToken);
 router.use(verificarRol('Administrador'));
 
+// GET /api/usuarios/roles - Obtener todos los roles
+router.get('/roles', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT id, nombre, descripcion
+      FROM roles
+      WHERE activo = true
+      ORDER BY id
+    `);
+
+    res.json({
+      roles: result.rows
+    });
+  } catch (error) {
+    console.error('Error al obtener roles:', error);
+    res.status(500).json({ error: 'Error al obtener roles' });
+  }
+});
+
 // GET /api/usuarios - Listar todos los usuarios
 router.get('/', async (req, res) => {
   try {
@@ -113,8 +132,12 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Validar rol válido (1=Admin, 2=Gerente, 3=Vendedor)
-    if (![1, 2, 3].includes(parseInt(rol_id))) {
+    // Validar que el rol existe
+    const rolExiste = await query(
+      'SELECT id FROM roles WHERE id = $1 AND activo = true',
+      [rol_id]
+    );
+    if (rolExiste.rows.length === 0) {
       return res.status(400).json({ 
         error: 'Rol inválido' 
       });
@@ -203,8 +226,12 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Validar rol válido
-    if (![1, 2, 3].includes(parseInt(rol_id))) {
+    // Validar que el rol existe
+    const rolExiste = await query(
+      'SELECT id FROM roles WHERE id = $1 AND activo = true',
+      [rol_id]
+    );
+    if (rolExiste.rows.length === 0) {
       return res.status(400).json({ 
         error: 'Rol inválido' 
       });

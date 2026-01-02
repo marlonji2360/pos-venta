@@ -236,12 +236,13 @@ router.post('/', verificarRol('Administrador', 'Gerente'), async (req, res) => {
   }
 });
 
-// PATCH /api/pedidos/:id/recibir - Marcar pedido como recibido y actualizar inventario
+// PATCH /api/pedidos/:id/recibir - Marcar pedido como recibido con ajustes de cantidades
 router.patch('/:id/recibir', verificarRol('Administrador', 'Gerente'), async (req, res) => {
   const client = await require('../config/database').pool.connect();
   
   try {
     const { id } = req.params;
+    const { productos_recibidos, notas_recepcion } = req.body;
 
     await client.query('BEGIN');
 
@@ -263,17 +264,32 @@ router.patch('/:id/recibir', verificarRol('Administrador', 'Gerente'), async (re
       return res.status(400).json({ error: 'El pedido no está en estado pendiente' });
     }
 
-    // Obtener productos del pedido
+    // Obtener productos del pedido original
     const productosResult = await client.query(
       'SELECT * FROM detalle_pedidos WHERE pedido_id = $1',
       [id]
     );
 
-    // Actualizar stock de cada producto
-    for (const item of productosResult.rows) {
+    let tieneAjustes = false;
+    const ajustes = [];
+
+    // Procesar cada producto
+    for (const itemPedido of productosResult.rows) {
+      // Buscar cantidad recibida (si no se envía, usar la cantidad pedida)
+      const productoRecibido = productos_recibidos?.find(
+        p => p.producto_id === itemPedido.producto_id
+      );
+      
+      const cantidadRecibida = productoRecibido 
+        ? productoRecibido.cantidad_recibida 
+        : itemPedido.cantidad;
+
+      const diferencia = cantidadRecibida - itemPedido.cantidad;
+
+      // Actualizar stock con la cantidad RECIBIDA
       await client.query(
         'UPDATE productos SET stock_actual = stock_actual + $1 WHERE id = $2',
-        [item.cantidad, item.producto_id]
+        [cantidadRecibida, itemPedido.producto_id]
       );
 
       // Registrar movimiento de inventario
@@ -285,27 +301,82 @@ router.patch('/:id/recibir', verificarRol('Administrador', 'Gerente'), async (re
           motivo,
           usuario_id,
           referencia
-        ) VALUES ($1, 'entrada', $2, 'Pedido recibido', $3, $4)`,
+        ) VALUES ($1, 'entrada', $2, $3, $4, $5)`,
         [
-          item.producto_id,
-          item.cantidad,
+          itemPedido.producto_id,
+          cantidadRecibida,
+          diferencia !== 0 
+            ? `Pedido recibido con ajuste (${diferencia > 0 ? '+' : ''}${diferencia})`
+            : 'Pedido recibido',
           req.usuario.id,
           `Pedido ${pedido.folio}`
         ]
       );
+
+      // Si hay diferencia, registrar ajuste
+      if (diferencia !== 0) {
+        tieneAjustes = true;
+        
+        const tipoAjuste = diferencia < 0 ? 'faltante' : 'sobrante';
+        const motivo = productoRecibido?.motivo || 
+                      (diferencia < 0 ? 'Producto faltante en recepción' : 'Producto sobrante en recepción');
+
+        await client.query(
+          `INSERT INTO ajustes_recepcion (
+            pedido_id,
+            producto_id,
+            cantidad_pedida,
+            cantidad_recibida,
+            diferencia,
+            tipo_ajuste,
+            motivo,
+            usuario_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            id,
+            itemPedido.producto_id,
+            itemPedido.cantidad,
+            cantidadRecibida,
+            diferencia,
+            tipoAjuste,
+            motivo,
+            req.usuario.id
+          ]
+        );
+
+        ajustes.push({
+          producto_id: itemPedido.producto_id,
+          cantidad_pedida: itemPedido.cantidad,
+          cantidad_recibida: cantidadRecibida,
+          diferencia: diferencia,
+          tipo: tipoAjuste
+        });
+      }
     }
 
     // Actualizar estado del pedido
     await client.query(
-      'UPDATE pedidos_proveedores SET estado = $1, fecha_recepcion = NOW() WHERE id = $2',
-      ['recibido', id]
+      `UPDATE pedidos_proveedores 
+       SET estado = $1, 
+           fecha_recepcion = NOW(),
+           tiene_ajustes = $2,
+           notas = CASE 
+             WHEN notas IS NULL THEN $3
+             ELSE notas || ' | ' || $3
+           END
+       WHERE id = $4`,
+      ['recibido', tieneAjustes, notas_recepcion || 'Recepcionado', id]
     );
 
     await client.query('COMMIT');
 
     res.json({
-      message: 'Pedido marcado como recibido. Inventario actualizado.',
-      pedido_id: id
+      message: tieneAjustes 
+        ? 'Pedido recibido con ajustes. Inventario actualizado.'
+        : 'Pedido recibido. Inventario actualizado.',
+      pedido_id: id,
+      tiene_ajustes: tieneAjustes,
+      ajustes: ajustes
     });
 
   } catch (error) {
@@ -317,6 +388,34 @@ router.patch('/:id/recibir', verificarRol('Administrador', 'Gerente'), async (re
     });
   } finally {
     client.release();
+  }
+});
+
+// GET /api/pedidos/:id/ajustes - Obtener ajustes de un pedido
+router.get('/:id/ajustes', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `SELECT 
+        ar.*,
+        p.nombre as producto_nombre,
+        u.nombre as usuario_nombre
+      FROM ajustes_recepcion ar
+      JOIN productos p ON ar.producto_id = p.id
+      LEFT JOIN usuarios u ON ar.usuario_id = u.id
+      WHERE ar.pedido_id = $1
+      ORDER BY ar.created_at DESC`,
+      [id]
+    );
+
+    res.json({
+      ajustes: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error al obtener ajustes:', error);
+    res.status(500).json({ error: 'Error al obtener ajustes' });
   }
 });
 

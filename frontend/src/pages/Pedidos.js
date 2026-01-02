@@ -63,6 +63,12 @@ const Pedidos = () => {
   const [openConfirmRecibir, setOpenConfirmRecibir] = useState(false);
   const [openConfirmCancelar, setOpenConfirmCancelar] = useState(false);
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
+  
+  // Estados para recepción con ajustes
+  const [openDialogRecepcion, setOpenDialogRecepcion] = useState(false);
+  const [pedidoParaRecibir, setPedidoParaRecibir] = useState(null);
+  const [productosRecepcion, setProductosRecepcion] = useState([]);
+  const [notasRecepcion, setNotasRecepcion] = useState('');
 
   useEffect(() => {
     cargarDatos();
@@ -206,9 +212,74 @@ const Pedidos = () => {
     }
   };
 
-  const handleMarcarRecibido = (pedido) => {
-    setPedidoSeleccionado(pedido);
-    setOpenConfirmRecibir(true);
+  const handleMarcarRecibido = async (pedido) => {
+    try {
+      // Cargar detalle del pedido
+      const response = await api.get(`/api/pedidos/${pedido.id}`);
+      setPedidoParaRecibir(response.data.pedido);
+      
+      // Inicializar productos con cantidades pedidas por defecto
+      const productosIniciales = response.data.productos.map(p => ({
+        ...p,
+        cantidad_recibida: p.cantidad, // Por defecto, misma cantidad
+        motivo: ''
+      }));
+      setProductosRecepcion(productosIniciales);
+      setNotasRecepcion('');
+      setOpenDialogRecepcion(true);
+    } catch (err) {
+      setError('Error al cargar detalle del pedido');
+    }
+  };
+
+  const confirmarRecepcion = async () => {
+    try {
+      // Preparar datos para enviar
+      const productosParaEnviar = productosRecepcion
+        .filter(p => p.cantidad_recibida !== p.cantidad || p.motivo) // Solo enviar los que tienen diferencias o motivo
+        .map(p => ({
+          producto_id: p.producto_id,
+          cantidad_recibida: p.cantidad_recibida,
+          motivo: p.motivo || null
+        }));
+
+      await api.patch(`/api/pedidos/${pedidoParaRecibir.id}/recibir`, {
+        productos_recibidos: productosParaEnviar.length > 0 ? productosParaEnviar : undefined,
+        notas_recepcion: notasRecepcion || undefined
+      });
+
+      const tieneAjustes = productosRecepcion.some(p => p.cantidad_recibida !== p.cantidad);
+      setSuccess(
+        tieneAjustes 
+          ? 'Pedido recibido con ajustes. Inventario actualizado.' 
+          : 'Pedido recibido. Inventario actualizado.'
+      );
+      setOpenDialogRecepcion(false);
+      setOpenDetalle(false);
+      cargarDatos();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al recepcionar pedido');
+    }
+  };
+
+  const actualizarCantidadRecibida = (productoId, nuevaCantidad) => {
+    setProductosRecepcion(prev => 
+      prev.map(p => 
+        p.producto_id === productoId 
+          ? { ...p, cantidad_recibida: parseInt(nuevaCantidad) || 0 }
+          : p
+      )
+    );
+  };
+
+  const actualizarMotivo = (productoId, motivo) => {
+    setProductosRecepcion(prev => 
+      prev.map(p => 
+        p.producto_id === productoId 
+          ? { ...p, motivo }
+          : p
+      )
+    );
   };
 
   const confirmarMarcarRecibido = async () => {
@@ -450,9 +521,29 @@ const Pedidos = () => {
                               >
                                 <RemoveIcon />
                               </IconButton>
-                              <Typography sx={{ minWidth: 30, textAlign: 'center' }}>
-                                {item.cantidad}
-                              </Typography>
+                              <TextField
+                                type="number"
+                                value={item.cantidad}
+                                onChange={(e) => {
+                                  const nuevaCantidad = parseInt(e.target.value) || 0;
+                                  if (nuevaCantidad >= 0) {
+                                    modificarCantidad(item.producto_id, nuevaCantidad);
+                                  }
+                                }}
+                                size="small"
+                                inputProps={{ 
+                                  min: 1,
+                                  style: { textAlign: 'center', fontWeight: 'bold' }
+                                }}
+                                sx={{ 
+                                  width: 80,
+                                  '& .MuiOutlinedInput-root': {
+                                    '& fieldset': {
+                                      borderColor: 'primary.main',
+                                    },
+                                  }
+                                }}
+                              />
                               <IconButton
                                 size="small"
                                 onClick={() => modificarCantidad(item.producto_id, item.cantidad + 1)}
@@ -769,6 +860,128 @@ const Pedidos = () => {
             startIcon={<CancelIcon />}
           >
             Sí, cancelar pedido
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo: Recepción de Pedido con Ajustes */}
+      <Dialog 
+        open={openDialogRecepcion} 
+        onClose={() => setOpenDialogRecepcion(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CheckCircleIcon />
+            <Typography variant="h6">Recepcionar Pedido</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {pedidoParaRecibir && (
+            <>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  <strong>Pedido:</strong> {pedidoParaRecibir.folio} - {pedidoParaRecibir.proveedor_nombre}
+                </Typography>
+                <Typography variant="body2">
+                  Ajusta las cantidades recibidas si hay diferencias con lo pedido.
+                </Typography>
+              </Alert>
+
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>Producto</strong></TableCell>
+                      <TableCell align="center"><strong>Pedido</strong></TableCell>
+                      <TableCell align="center"><strong>Recibido</strong></TableCell>
+                      <TableCell align="center"><strong>Diferencia</strong></TableCell>
+                      <TableCell><strong>Motivo</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {productosRecepcion.map((producto) => {
+                      const diferencia = producto.cantidad_recibida - producto.cantidad;
+                      return (
+                        <TableRow key={producto.producto_id}>
+                          <TableCell>{producto.producto_nombre}</TableCell>
+                          <TableCell align="center">
+                            <Chip label={producto.cantidad} size="small" />
+                          </TableCell>
+                          <TableCell align="center">
+                            <TextField
+                              type="number"
+                              value={producto.cantidad_recibida}
+                              onChange={(e) => actualizarCantidadRecibida(producto.producto_id, e.target.value)}
+                              size="small"
+                              sx={{ width: 80 }}
+                              inputProps={{ min: 0 }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            {diferencia !== 0 && (
+                              <Chip 
+                                label={`${diferencia > 0 ? '+' : ''}${diferencia}`}
+                                color={diferencia < 0 ? 'error' : 'success'}
+                                size="small"
+                              />
+                            )}
+                            {diferencia === 0 && (
+                              <Chip label="OK" color="default" size="small" />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {diferencia !== 0 && (
+                              <TextField
+                                placeholder="Ej: Cajas dañadas"
+                                value={producto.motivo}
+                                onChange={(e) => actualizarMotivo(producto.producto_id, e.target.value)}
+                                size="small"
+                                fullWidth
+                              />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              <TextField
+                label="Notas de recepción (opcional)"
+                multiline
+                rows={2}
+                fullWidth
+                value={notasRecepcion}
+                onChange={(e) => setNotasRecepcion(e.target.value)}
+                placeholder="Ej: Producto llegó en buenas condiciones"
+                sx={{ mt: 3 }}
+              />
+
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                <Typography variant="body2">
+                  ⚠️ El inventario se actualizará con las cantidades <strong>recibidas</strong>, no las pedidas.
+                </Typography>
+              </Alert>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button 
+            onClick={() => setOpenDialogRecepcion(false)}
+            color="inherit"
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={confirmarRecepcion}
+            variant="contained"
+            color="success"
+            startIcon={<CheckCircleIcon />}
+          >
+            Confirmar Recepción
           </Button>
         </DialogActions>
       </Dialog>

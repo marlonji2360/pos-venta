@@ -17,8 +17,7 @@ router.post('/', verificarRol('Administrador', 'Gerente', 'Vendedor'), async (re
       subtotal,
       iva,
       total,
-      productos,
-      es_envio  // ← AGREGAR
+      productos
     } = req.body;
 
     // Validar datos requeridos
@@ -73,11 +72,10 @@ router.post('/', verificarRol('Administrador', 'Gerente', 'Vendedor'), async (re
         subtotal, 
         iva, 
         total, 
-        estado,
-        es_envio
-      ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, 'completada', $8)
+        estado
+      ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, 'completada')
       RETURNING *`,
-      [folio, req.usuario.id, cliente_id, metodo_pago, subtotal, iva, total, es_envio || false]
+      [folio, req.usuario.id, cliente_id, metodo_pago, subtotal, iva, total]
     );
 
     const venta = ventaResult.rows[0];

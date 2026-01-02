@@ -13,6 +13,10 @@ import BackupIcon from '@mui/icons-material/Backup';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import ApprovalIcon from '@mui/icons-material/Approval';
+import ReceiptIcon from '@mui/icons-material/Receipt';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import UndoIcon from '@mui/icons-material/Undo';
+import ReplyIcon from '@mui/icons-material/Reply';
 import {
   Box,
   AppBar,
@@ -37,7 +41,6 @@ import {
   Inventory as InventoryIcon,
   ShoppingCart as ShoppingCartIcon,
   People as PeopleIcon,
-  LocalShipping as LocalShippingIcon,
   Business as BusinessIcon,
   PointOfSale as PointOfSaleIcon,
   Logout as LogoutIcon,
@@ -57,21 +60,23 @@ const Layout = () => {
   const [busquedaOpen, setBusquedaOpen] = useState(false);
 
   // Cargar contador de notificaciones
-  useEffect(() => {
-    const cargarContador = async () => {
-      try {
-        const response = await api.get('/api/notificaciones/contador');
-        setContadorNotificaciones(response.data.total);
-      } catch (error) {
-        console.error('Error al cargar contador de notificaciones:', error);
-      }
-    };
+useEffect(() => {
+  const cargarContador = async () => {
+    try {
+      const response = await api.get('/api/notificaciones/contador');
+      setContadorNotificaciones(response.data.total);
+    } catch (error) {
+      console.error('Error al cargar contador de notificaciones:', error);
+    }
+  };
 
-    cargarContador();
-    const interval = setInterval(cargarContador, 60000); // Actualizar cada 60 segundos
+  cargarContador();
 
-    return () => clearInterval(interval);
-  }, []);
+  // Auto-refresh cada 30 segundos
+  const interval = setInterval(cargarContador, 30000);
+
+  return () => clearInterval(interval);
+}, []);
 
   // Cargar nombre del negocio
   useEffect(() => {
@@ -104,30 +109,35 @@ const Layout = () => {
   }, []);
 
   const menuItems = [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
-    { text: 'Productos', icon: <InventoryIcon />, path: '/productos' },
-    { text: 'Ventas', icon: <PointOfSaleIcon />, path: '/ventas' },
-    { text: 'Clientes', icon: <PeopleIcon />, path: '/clientes' },
-    { text: 'Proveedores', icon: <BusinessIcon />, path: '/proveedores' },
-    { text: 'Pedidos', icon: <LocalShippingIcon />, path: '/pedidos' },
-    { text: 'Reportes', icon: <AssessmentIcon />, path: '/reportes' },
-    { text: 'Historial Precios', icon: <HistoryIcon />, path: '/historial-precios' },
-    { text: 'Backup', icon: <BackupIcon />, path: '/backup' },
-    { text: 'Cuentas por Pagar', icon: <AccountBalanceIcon />, path: '/cuentas-por-pagar',roles: ['Administrador', 'Gerente']},
-    { text: 'Descuentos', icon: <LocalOfferIcon />, path: '/gestion-descuentos',roles: ['Administrador', 'Gerente']},
-    { text: 'Autorizaciones', icon: <ApprovalIcon />, path: '/autorizaciones-descuento',roles: ['Administrador', 'Gerente']},
-    { 
-      text: 'Notificaciones', 
-      icon: (
-        <Badge badgeContent={contadorNotificaciones} color="error">
-          <NotificationsIcon />
-        </Badge>
-      ), 
-      path: '/notificaciones' 
-    },
-    { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion' },
-    { text: 'Usuarios', icon: <ManageAccountsIcon />, path: '/usuarios' },
+    { text: 'Dashboard', icon: <DashboardIcon />, path: '/', roles: ['Administrador', 'Gerente'] },
+    { text: 'Productos', icon: <InventoryIcon />, path: '/productos', roles: ['Administrador', 'Gerente', 'Vendedor'] },
+    { text: 'Ventas', icon: <PointOfSaleIcon />, path: '/ventas', roles: ['Administrador', 'Gerente', 'Vendedor'] },
+    { text: 'Clientes', icon: <PeopleIcon />, path: '/clientes', roles: ['Administrador', 'Gerente', 'Vendedor'] },
+    { text: 'Proveedores', icon: <BusinessIcon />, path: '/proveedores', roles: ['Administrador', 'Gerente'] },
+    { text: 'Pedidos', icon: <LocalShippingIcon />, path: '/pedidos', roles: ['Administrador', 'Gerente'] },
+    { text: 'Reportes', icon: <AssessmentIcon />, path: '/reportes', roles: ['Administrador', 'Gerente'] },
+    { text: 'Historial Precios', icon: <HistoryIcon />, path: '/historial-precios', roles: ['Administrador', 'Gerente'] },
+    { text: 'Backup', icon: <BackupIcon />, path: '/backup', roles: ['Administrador'] },
+    { text: 'Cuentas por Pagar', icon: <AccountBalanceIcon />, path: '/cuentas-por-pagar', roles: ['Administrador', 'Gerente'] },
+    { text: 'Descuentos', icon: <LocalOfferIcon />, path: '/gestion-descuentos', roles: ['Administrador', 'Gerente'] },
+    { text: 'Autorizaciones', icon: <ApprovalIcon />, path: '/autorizaciones-descuento', roles: ['Administrador', 'Gerente'] },
+    { text: 'Gastos Fijos', icon: <ReceiptIcon />, path: '/gastos-fijos', roles: ['Administrador', 'Gerente'] },
+    { text: 'Envíos', icon: <LocalShippingIcon />, path: '/envios', roles: ['Administrador', 'Gerente', 'Piloto'] },
+    { text: 'Devoluciones Clientes', icon: <UndoIcon />, path: '/devoluciones-clientes', roles: ['Administrador', 'Gerente', 'Vendedor'] },
+    { text: 'Devoluciones Proveedores', icon: <ReplyIcon />, path: '/devoluciones-proveedores', roles: ['Administrador', 'Gerente'] },
+    { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion', roles: ['Administrador'] },
+    { text: 'Usuarios', icon: <ManageAccountsIcon />, path: '/usuarios', roles: ['Administrador'] },
   ];
+
+  // Filtrar menú según rol del usuario
+  const menuItemsFiltrados = menuItems.filter(item => {
+    // Si el item no tiene roles definidos, mostrarlo a todos
+    if (!item.roles || item.roles.length === 0) {
+      return true;
+    }
+    // Verificar si el rol del usuario está en la lista de roles permitidos
+    return item.roles.includes(usuario?.rol);
+  });
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -157,7 +167,7 @@ const Layout = () => {
       </Toolbar>
       <Divider />
       <List>
-        {menuItems.map((item) => (
+        {menuItemsFiltrados.map((item) => (
           <ListItem key={item.text} disablePadding>
             <ListItemButton
               selected={location.pathname === item.path}
@@ -194,7 +204,7 @@ const Layout = () => {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            {menuItems.find(item => item.path === location.pathname)?.text || nombreNegocio}
+            {menuItemsFiltrados.find(item => item.path === location.pathname)?.text || nombreNegocio}
           </Typography>
           <IconButton 
             color="inherit" 
@@ -202,6 +212,15 @@ const Layout = () => {
             sx={{ mr: 2 }}
           >
             <SearchIcon />
+          </IconButton>
+          <IconButton 
+            color="inherit" 
+            onClick={() => navigate('/notificaciones')}
+            sx={{ mr: 2 }}
+          >
+            <Badge badgeContent={contadorNotificaciones} color="error">
+              <NotificationsIcon />
+            </Badge>
           </IconButton>
           <IconButton onClick={handleMenuClick} sx={{ p: 0 }}>
             <Avatar sx={{ bgcolor: 'secondary.main' }}>

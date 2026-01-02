@@ -390,7 +390,7 @@ const Reportes = () => {
                         <Chip label={`#${index + 1}`} size="small" sx={{ mr: 1 }} />
                         {producto.nombre}
                       </TableCell>
-                      <TableCell>{producto.categoria_id || '-'}</TableCell>
+                      <TableCell>{producto.categoria_nombre || producto.categoria_id || '-'}</TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="bold">{producto.total_vendido}</Typography>
                       </TableCell>
@@ -453,7 +453,7 @@ const Reportes = () => {
                     {reporteInventario.productos.map((producto) => (
                       <TableRow key={producto.id}>
                         <TableCell>{producto.nombre}</TableCell>
-                        <TableCell>{producto.categoria_id || '-'}</TableCell>
+                        <TableCell>{producto.categoria_nombre || producto.categoria_id || '-'}</TableCell>
                         <TableCell align="right">{producto.stock_actual}</TableCell>
                         <TableCell align="right">{producto.stock_minimo}</TableCell>
                         <TableCell align="right">Q{parseFloat(producto.precio_compra).toFixed(2)}</TableCell>

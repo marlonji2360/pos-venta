@@ -87,35 +87,10 @@ const Ventas = () => {
   const [openDialogDescuento, setOpenDialogDescuento] = useState(false);
   const [autorizacionPendiente, setAutorizacionPendiente] = useState(null);
   const [esperandoAutorizacion, setEsperandoAutorizacion] = useState(false);
-  
-  // Estados para envíos a domicilio
-  const [esEnvio, setEsEnvio] = useState(false);
-  const [datosEnvio, setDatosEnvio] = useState({
-    direccion_entrega: '',
-    referencia_direccion: '',
-    telefono_contacto: '',
-    nombre_contacto: '',
-    notas_cliente: '',
-    costo_envio: 0,
-    asignar_piloto_auto: true
-  });
-  const [openDialogEnvio, setOpenDialogEnvio] = useState(false);
 
   useEffect(() => {
     cargarDatos();
   }, []);
-
-  // Pre-cargar datos del cliente en el formulario de envío
-  useEffect(() => {
-    if (esEnvio && clienteSeleccionado && openDialogEnvio) {
-      setDatosEnvio(prev => ({
-        ...prev,
-        direccion_entrega: clienteSeleccionado.direccion || prev.direccion_entrega,
-        telefono_contacto: clienteSeleccionado.telefono || prev.telefono_contacto,
-        nombre_contacto: clienteSeleccionado.nombre || prev.nombre_contacto
-      }));
-    }
-  }, [esEnvio, clienteSeleccionado, openDialogEnvio]);
 
   useEffect(() => {
     if (carrito.length > 0) {
@@ -418,8 +393,7 @@ const Ventas = () => {
         }),
         aplicar_descuentos_volumen: aplicarDescuentosVolumen,
         descuento_adicional: descuentoAdicional,
-        autorizacion_id: autorizacionPendiente,
-        es_envio: esEnvio
+        autorizacion_id: autorizacionPendiente
       };
 
       console.log('=== DATOS DE VENTA ===');
@@ -429,22 +403,6 @@ console.log('esperandoAutorizacion:', esperandoAutorizacion);
 console.log('descuentoAdicional:', descuentoAdicional);
 
       const response = await api.post('/api/ventas', ventaData);
-
-      // Si es envío, crear registro de envío
-      if (esEnvio) {
-        try {
-          await api.post('/api/envios', {
-            venta_id: response.data.venta.id,
-            ...datosEnvio
-          });
-          setSuccess(`Venta y envío registrados. Folio: ${response.data.venta.folio}`);
-        } catch (envioErr) {
-          console.error('Error al crear envío:', envioErr);
-          setSuccess(`Venta registrada (Folio: ${response.data.venta.folio}), pero hubo un error al crear el envío`);
-        }
-      } else {
-        setSuccess(`Venta registrada exitosamente. Folio: ${response.data.venta.folio}`);
-      }
 
       // Verificar si hay advertencias de stock
       if (response.data.stock_negativo && response.data.advertencias) {
@@ -475,18 +433,6 @@ console.log('descuentoAdicional:', descuentoAdicional);
       setMotivoDescuento('');
       setAutorizacionPendiente(null);
       setEsperandoAutorizacion(false);
-      
-      // Limpiar envíos
-      setEsEnvio(false);
-      setDatosEnvio({
-        direccion_entrega: '',
-        referencia_direccion: '',
-        telefono_contacto: '',
-        nombre_contacto: '',
-        notas_cliente: '',
-        costo_envio: 0,
-        asignar_piloto_auto: true
-      });
 
     } catch (err) {
       setError(err.response?.data?.error || 'Error al registrar venta');
@@ -510,18 +456,6 @@ console.log('descuentoAdicional:', descuentoAdicional);
     setMotivoDescuento('');
     setAutorizacionPendiente(null);
     setEsperandoAutorizacion(false);
-    
-    // Limpiar envíos
-    setEsEnvio(false);
-    setDatosEnvio({
-      direccion_entrega: '',
-      referencia_direccion: '',
-      telefono_contacto: '',
-      nombre_contacto: '',
-      notas_cliente: '',
-      costo_envio: 0,
-      asignar_piloto_auto: true
-    });
   };
 
   const imprimirTicket = () => {
@@ -792,29 +726,9 @@ console.log('descuentoAdicional:', descuentoAdicional);
                                 >
                                   <RemoveIcon />
                                 </IconButton>
-                                <TextField
-                                  type="number"
-                                  value={item.cantidad}
-                                  onChange={(e) => {
-                                    const nuevaCantidad = parseInt(e.target.value) || 0;
-                                    if (nuevaCantidad >= 0) {
-                                      modificarCantidad(item.producto_id, nuevaCantidad);
-                                    }
-                                  }}
-                                  size="small"
-                                  inputProps={{ 
-                                    min: 1,
-                                    style: { textAlign: 'center', fontWeight: 'bold', fontSize: '1rem' }
-                                  }}
-                                  sx={{ 
-                                    width: 80,
-                                    '& .MuiOutlinedInput-root': {
-                                      '& fieldset': {
-                                        borderColor: 'primary.main',
-                                      },
-                                    }
-                                  }}
-                                />
+                                <Typography sx={{ minWidth: 40, textAlign: 'center', fontWeight: 'bold', fontSize: '1rem' }}>
+                                  {item.cantidad}
+                                </Typography>
                                 <IconButton
                                   size="small"
                                   onClick={() => modificarCantidad(item.producto_id, item.cantidad + 1)}
@@ -899,58 +813,6 @@ console.log('descuentoAdicional:', descuentoAdicional);
   label="Aplicar descuentos por volumen"
   sx={{ mt: 2 }}
 />
-
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={esEnvio}
-                        onChange={(e) => {
-                          setEsEnvio(e.target.checked);
-                          if (e.target.checked) {
-                            // Pre-cargar datos del cliente si existe
-                            if (clienteSeleccionado) {
-                              setDatosEnvio(prev => ({
-                                ...prev,
-                                direccion_entrega: clienteSeleccionado.direccion || '',
-                                telefono_contacto: clienteSeleccionado.telefono || '',
-                                nombre_contacto: clienteSeleccionado.nombre || ''
-                              }));
-                            }
-                            setOpenDialogEnvio(true);
-                          }
-                        }}
-                      />
-                    }
-                    label="🚚 Envío a Domicilio"
-                    sx={{ mt: 1 }}
-                  />
-                  
-                  {esEnvio && (
-                    <Box sx={{ ml: 4, mt: 1 }}>
-                      <Alert severity="info" sx={{ mb: 1 }}>
-                        <Typography variant="body2">
-                          <strong>Dirección:</strong> {datosEnvio.direccion_entrega || 'No especificada'}
-                        </Typography>
-                        {datosEnvio.telefono_contacto && (
-                          <Typography variant="body2">
-                            <strong>Teléfono:</strong> {datosEnvio.telefono_contacto}
-                          </Typography>
-                        )}
-                        {datosEnvio.costo_envio > 0 && (
-                          <Typography variant="body2">
-                            <strong>Costo envío:</strong> Q{parseFloat(datosEnvio.costo_envio).toFixed(2)}
-                          </Typography>
-                        )}
-                      </Alert>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => setOpenDialogEnvio(true)}
-                      >
-                        Editar Datos de Envío
-                      </Button>
-                    </Box>
-                  )}
                 </Grid>
 
                 <Grid item xs={12} md={6}>
@@ -1132,129 +994,6 @@ console.log('descuentoAdicional:', descuentoAdicional);
           <Button onClick={() => setOpenConfirmar(false)}>Cancelar</Button>
           <Button onClick={finalizarVenta} variant="contained" autoFocus>
             Confirmar Venta
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Diálogo: Datos de Envío a Domicilio */}
-      <Dialog 
-        open={openDialogEnvio} 
-        onClose={() => {
-          if (!datosEnvio.direccion_entrega) {
-            setEsEnvio(false);
-          }
-          setOpenDialogEnvio(false);
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
-          🚚 Datos de Envío a Domicilio
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Dirección de Entrega"
-                multiline
-                rows={2}
-                value={datosEnvio.direccion_entrega}
-                onChange={(e) => setDatosEnvio({ ...datosEnvio, direccion_entrega: e.target.value })}
-                required
-                placeholder="Ej: 5ta Avenida 3-25 Zona 1"
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Referencia de Dirección"
-                value={datosEnvio.referencia_direccion}
-                onChange={(e) => setDatosEnvio({ ...datosEnvio, referencia_direccion: e.target.value })}
-                placeholder="Ej: Casa blanca con portón negro, frente al parque"
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Nombre de Contacto"
-                value={datosEnvio.nombre_contacto}
-                onChange={(e) => setDatosEnvio({ ...datosEnvio, nombre_contacto: e.target.value })}
-                placeholder="Nombre de quien recibe"
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Teléfono de Contacto"
-                value={datosEnvio.telefono_contacto}
-                onChange={(e) => setDatosEnvio({ ...datosEnvio, telefono_contacto: e.target.value })}
-                placeholder="12345678"
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Costo de Envío"
-                type="number"
-                value={datosEnvio.costo_envio}
-                onChange={(e) => setDatosEnvio({ ...datosEnvio, costo_envio: parseFloat(e.target.value) || 0 })}
-                inputProps={{ min: 0, step: 0.01 }}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">Q</InputAdornment>,
-                }}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Notas Adicionales"
-                multiline
-                rows={2}
-                value={datosEnvio.notas_cliente}
-                onChange={(e) => setDatosEnvio({ ...datosEnvio, notas_cliente: e.target.value })}
-                placeholder="Ej: Tocar el timbre 3 veces, entregar después de las 3pm"
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={datosEnvio.asignar_piloto_auto}
-                    onChange={(e) => setDatosEnvio({ ...datosEnvio, asignar_piloto_auto: e.target.checked })}
-                  />
-                }
-                label="Asignar piloto automáticamente"
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button 
-            onClick={() => {
-              setEsEnvio(false);
-              setOpenDialogEnvio(false);
-            }}
-          >
-            Cancelar
-          </Button>
-          <Button 
-            onClick={() => {
-              if (!datosEnvio.direccion_entrega) {
-                setError('Ingresa la dirección de entrega');
-                return;
-              }
-              setOpenDialogEnvio(false);
-            }}
-            variant="contained"
-          >
-            Guardar Datos
           </Button>
         </DialogActions>
       </Dialog>

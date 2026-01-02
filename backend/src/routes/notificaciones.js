@@ -1,4 +1,3 @@
-// src/routes/notificaciones.js
 const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
@@ -6,19 +5,16 @@ const { verificarToken } = require('../middleware/auth');
 
 router.use(verificarToken);
 
+// ======================================================
 // GET /api/notificaciones - Obtener todas las notificaciones
+// ======================================================
 router.get('/', async (req, res) => {
   try {
     const notificaciones = [];
 
     // 1. Productos con stock bajo
     const stockBajoResult = await query(`
-      SELECT 
-        id,
-        nombre,
-        codigo_barras,
-        stock_actual,
-        stock_minimo
+      SELECT id, nombre, codigo_barras, stock_actual, stock_minimo
       FROM productos
       WHERE stock_actual <= stock_minimo
       AND activo = true
@@ -40,16 +36,15 @@ router.get('/', async (req, res) => {
       });
     });
 
-    // 2. Productos próximos a vencer (próximos 30 días)
+    // 2. Productos próximos a vencer
     const porVencerResult = await query(`
       SELECT 
         l.id,
         l.numero_lote,
         l.fecha_vencimiento,
         l.cantidad,
-        p.nombre as producto_nombre,
-        p.id as producto_id,
-        (l.fecha_vencimiento - CURRENT_DATE) as dias_restantes
+        p.nombre AS producto_nombre,
+        (l.fecha_vencimiento - CURRENT_DATE) AS dias_restantes
       FROM lotes_productos l
       JOIN productos p ON l.producto_id = p.id
       WHERE l.fecha_vencimiento BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
@@ -60,18 +55,17 @@ router.get('/', async (req, res) => {
     `);
 
     porVencerResult.rows.forEach(lote => {
-      const diasRestantes = parseInt(lote.dias_restantes);
-      const prioridad = diasRestantes <= 7 ? 'alta' : diasRestantes <= 15 ? 'media' : 'baja';
-      const color = diasRestantes <= 7 ? 'error' : diasRestantes <= 15 ? 'warning' : 'info';
+      const dias = parseInt(lote.dias_restantes);
+      const prioridad = dias <= 7 ? 'alta' : dias <= 15 ? 'media' : 'baja';
 
       notificaciones.push({
         id: `vencimiento-${lote.id}`,
         tipo: 'producto_vencer',
-        prioridad: prioridad,
+        prioridad,
         titulo: 'Producto por Vencer',
-        mensaje: `${lote.producto_nombre} (Lote: ${lote.numero_lote}) vence en ${diasRestantes} días`,
+        mensaje: `${lote.producto_nombre} (Lote: ${lote.numero_lote}) vence en ${dias} días`,
         icono: 'schedule',
-        color: color,
+        color: prioridad === 'alta' ? 'error' : prioridad === 'media' ? 'warning' : 'info',
         fecha: new Date(),
         datos: lote
       });
@@ -83,9 +77,8 @@ router.get('/', async (req, res) => {
         pp.id,
         pp.folio,
         pp.fecha_pedido,
-        pp.total,
-        prov.nombre as proveedor_nombre,
-        (CURRENT_DATE - DATE(pp.fecha_pedido)) as dias_pendiente
+        prov.nombre AS proveedor_nombre,
+        (CURRENT_DATE - DATE(pp.fecha_pedido)) AS dias_pendiente
       FROM pedidos_proveedores pp
       JOIN proveedores prov ON pp.proveedor_id = prov.id
       WHERE pp.estado = 'pendiente'
@@ -94,15 +87,15 @@ router.get('/', async (req, res) => {
     `);
 
     pedidosPendientesResult.rows.forEach(pedido => {
-      const diasPendiente = parseInt(pedido.dias_pendiente);
-      const prioridad = diasPendiente >= 7 ? 'alta' : diasPendiente >= 3 ? 'media' : 'baja';
+      const dias = parseInt(pedido.dias_pendiente);
+      const prioridad = dias >= 7 ? 'alta' : dias >= 3 ? 'media' : 'baja';
 
       notificaciones.push({
         id: `pedido-${pedido.id}`,
         tipo: 'pedido_pendiente',
-        prioridad: prioridad,
+        prioridad,
         titulo: 'Pedido Pendiente',
-        mensaje: `Pedido ${pedido.folio} de ${pedido.proveedor_nombre} lleva ${diasPendiente} días pendiente`,
+        mensaje: `Pedido ${pedido.folio} de ${pedido.proveedor_nombre} lleva ${dias} días pendiente`,
         icono: 'local_shipping',
         color: 'info',
         fecha: new Date(),
@@ -112,10 +105,7 @@ router.get('/', async (req, res) => {
 
     // 4. Productos sin stock
     const sinStockResult = await query(`
-      SELECT 
-        id,
-        nombre,
-        codigo_barras
+      SELECT id, nombre, codigo_barras
       FROM productos
       WHERE stock_actual = 0
       AND activo = true
@@ -136,12 +126,67 @@ router.get('/', async (req, res) => {
       });
     });
 
-    // 5. Solicitudes de descuento pendientes (solo Admin/Gerente)
+    // 5. Gastos por vencer (solo Admin/Gerente)
+    if (req.usuario.rol === 'Administrador' || req.usuario.rol === 'Gerente') {
+      const gastosPorVencerResult = await query(`
+        SELECT 
+          pg.id,
+          pg.fecha_vencimiento,
+          pg.monto_pagado as monto,
+          gf.nombre as gasto_nombre,
+          gf.proveedor,
+          gf.dias_recordatorio,
+          cg.nombre as categoria_nombre,
+          cg.color,
+          (pg.fecha_vencimiento - CURRENT_DATE) as dias_restantes,
+          CASE 
+            WHEN pg.fecha_vencimiento < CURRENT_DATE THEN 'vencido'
+            WHEN pg.fecha_vencimiento <= CURRENT_DATE + gf.dias_recordatorio THEN 'por_vencer'
+            ELSE 'pendiente'
+          END as estado_alerta
+        FROM pagos_gastos pg
+        JOIN gastos_fijos gf ON pg.gasto_fijo_id = gf.id
+        JOIN categorias_gastos cg ON gf.categoria_id = cg.id
+        WHERE pg.estado = 'pendiente'
+        AND gf.activo = true
+        AND (
+          pg.fecha_vencimiento < CURRENT_DATE
+          OR pg.fecha_vencimiento <= CURRENT_DATE + gf.dias_recordatorio
+        )
+        ORDER BY pg.fecha_vencimiento ASC
+      `);
+
+      gastosPorVencerResult.rows.forEach(gasto => {
+        const diasRestantes = parseInt(gasto.dias_restantes);
+        const esVencido = gasto.estado_alerta === 'vencido';
+        const prioridad = esVencido ? 'alta' : diasRestantes <= 1 ? 'alta' : 'media';
+
+        notificaciones.push({
+          id: `gasto-${gasto.id}`,
+          tipo: 'gasto_por_vencer',
+          prioridad: prioridad,
+          titulo: esVencido ? '🚨 Gasto Vencido' : '💰 Gasto Por Vencer',
+          mensaje: esVencido 
+            ? `${gasto.gasto_nombre} venció hace ${Math.abs(diasRestantes)} días - Q${parseFloat(gasto.monto).toFixed(2)}`
+            : `${gasto.gasto_nombre} vence en ${diasRestantes} días - Q${parseFloat(gasto.monto).toFixed(2)}`,
+          icono: esVencido ? 'error' : 'warning',
+          color: esVencido ? 'error' : 'warning',
+          fecha: gasto.fecha_vencimiento,
+          datos: {
+            gasto_id: gasto.id,
+            monto: gasto.monto,
+            proveedor: gasto.proveedor,
+            categoria: gasto.categoria_nombre,
+            url: '/gastos-fijos'
+          }
+        });
+      });
+    }
+
+    // 6. Solicitudes de descuento (Admin / Gerente)
     if (req.usuario.rol === 'Administrador' || req.usuario.rol === 'Gerente') {
       const solicitudesResult = await query(`
-        SELECT 
-          ad.*,
-          u.nombre as solicitado_por_nombre
+        SELECT ad.*, u.nombre AS solicitado_por_nombre
         FROM autorizaciones_descuento ad
         JOIN usuarios u ON ad.solicitado_por = u.id
         WHERE ad.estado = 'pendiente'
@@ -154,17 +199,9 @@ router.get('/', async (req, res) => {
           tipo: 'solicitud_descuento',
           prioridad: 'alta',
           titulo: '🎁 Nueva Solicitud de Descuento',
-          mensaje: `${solicitud.solicitado_por_nombre} solicita Q${parseFloat(solicitud.monto_descuento).toFixed(2)} de descuento`,
+          mensaje: `${solicitud.solicitado_por_nombre} solicita Q${parseFloat(solicitud.monto_descuento).toFixed(2)}`,
           fecha: solicitud.fecha_solicitud,
-          leida: false,
-          datos: {
-            autorizacion_id: solicitud.id,
-            monto: solicitud.monto_descuento,
-            porcentaje: solicitud.porcentaje_descuento,
-            motivo: solicitud.motivo,
-            solicitante: solicitud.solicitado_por_nombre,
-            url: '/autorizaciones-descuento'
-          }
+          datos: solicitud
         });
       });
     }
@@ -173,90 +210,95 @@ router.get('/', async (req, res) => {
     const prioridadOrden = { alta: 1, media: 2, baja: 3 };
     notificaciones.sort((a, b) => prioridadOrden[a.prioridad] - prioridadOrden[b.prioridad]);
 
-    // Contar por tipo y prioridad
-    const resumen = {
-      total: notificaciones.length,
-      por_prioridad: {
-        alta: notificaciones.filter(n => n.prioridad === 'alta').length,
-        media: notificaciones.filter(n => n.prioridad === 'media').length,
-        baja: notificaciones.filter(n => n.prioridad === 'baja').length
-      },
-      por_tipo: {
-        stock_bajo: notificaciones.filter(n => n.tipo === 'stock_bajo').length,
-        producto_vencer: notificaciones.filter(n => n.tipo === 'producto_vencer').length,
-        pedido_pendiente: notificaciones.filter(n => n.tipo === 'pedido_pendiente').length,
-        sin_stock: notificaciones.filter(n => n.tipo === 'sin_stock').length
-      }
-    };
-
-    res.json({
-      notificaciones: notificaciones,
-      resumen: resumen
-    });
+    res.json({ notificaciones });
 
   } catch (error) {
     console.error('Error al obtener notificaciones:', error);
-    res.status(500).json({ 
-      error: 'Error al obtener notificaciones' 
-    });
+    res.status(500).json({ error: 'Error al obtener notificaciones' });
   }
 });
 
-// GET /api/notificaciones/contador - Obtener solo el contador
+// ======================================================
+// GET /api/notificaciones/contador - SOLO CONTADOR
+// ======================================================
 router.get('/contador', async (req, res) => {
   try {
-    // Stock bajo
     const stockBajo = await query(`
-      SELECT COUNT(*) as total
+      SELECT COUNT(*) AS total
       FROM productos
       WHERE stock_actual <= stock_minimo
       AND activo = true
     `);
 
-    // Productos por vencer
     const porVencer = await query(`
-      SELECT COUNT(DISTINCT producto_id) as total
+      SELECT COUNT(DISTINCT producto_id) AS total
       FROM lotes_productos
       WHERE fecha_vencimiento BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
       AND cantidad > 0
     `);
 
-    // Pedidos pendientes
     const pedidosPendientes = await query(`
-      SELECT COUNT(*) as total
+      SELECT COUNT(*) AS total
       FROM pedidos_proveedores
       WHERE estado = 'pendiente'
     `);
 
-    // Sin stock
     const sinStock = await query(`
-      SELECT COUNT(*) as total
+      SELECT COUNT(*) AS total
       FROM productos
       WHERE stock_actual = 0
       AND activo = true
     `);
 
-    const total = 
+    let gastosPorVencer = 0;
+    let solicitudesDescuento = 0;
+
+    if (req.usuario.rol === 'Administrador' || req.usuario.rol === 'Gerente') {
+      const gastos = await query(`
+        SELECT COUNT(*) AS total
+        FROM pagos_gastos pg
+        JOIN gastos_fijos gf ON pg.gasto_fijo_id = gf.id
+        WHERE pg.estado = 'pendiente'
+        AND gf.activo = true
+        AND (
+          pg.fecha_vencimiento < CURRENT_DATE
+          OR pg.fecha_vencimiento <= CURRENT_DATE + gf.dias_recordatorio
+        )
+      `);
+
+      const solicitudes = await query(`
+        SELECT COUNT(*) AS total
+        FROM autorizaciones_descuento
+        WHERE estado = 'pendiente'
+      `);
+
+      gastosPorVencer = parseInt(gastos.rows[0].total);
+      solicitudesDescuento = parseInt(solicitudes.rows[0].total);
+    }
+
+    const total =
       parseInt(stockBajo.rows[0].total) +
       parseInt(porVencer.rows[0].total) +
       parseInt(pedidosPendientes.rows[0].total) +
-      parseInt(sinStock.rows[0].total);
+      parseInt(sinStock.rows[0].total) +
+      gastosPorVencer +
+      solicitudesDescuento;
 
     res.json({
-      total: total,
+      total,
       desglose: {
         stock_bajo: parseInt(stockBajo.rows[0].total),
         por_vencer: parseInt(porVencer.rows[0].total),
         pedidos_pendientes: parseInt(pedidosPendientes.rows[0].total),
-        sin_stock: parseInt(sinStock.rows[0].total)
+        sin_stock: parseInt(sinStock.rows[0].total),
+        gastos_por_vencer: gastosPorVencer,
+        solicitudes_descuento: solicitudesDescuento
       }
     });
 
   } catch (error) {
     console.error('Error al obtener contador de notificaciones:', error);
-    res.status(500).json({ 
-      error: 'Error al obtener contador' 
-    });
+    res.status(500).json({ error: 'Error al obtener contador' });
   }
 });
 

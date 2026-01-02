@@ -72,6 +72,12 @@ const historialPreciosRoutes = require('./src/routes/historial-precios');
 const backupRoutes = require('./src/routes/backup');
 const cuentasPorPagarRoutes = require('./src/routes/cuentas-por-pagar');
 const descuentosRoutes = require('./src/routes/descuentos');
+const gastosFijosRoutes = require('./src/routes/gastos-fijos');
+const enviosRoutes = require('./src/routes/envios');
+const devolucionesClientesRoutes = require('./src/routes/devoluciones-clientes');
+const devolucionesProveedoresRoutes = require('./src/routes/devoluciones-proveedores');
+
+
 
 
 
@@ -95,6 +101,11 @@ app.use('/api/historial-precios', historialPreciosRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/cuentas-por-pagar', cuentasPorPagarRoutes);
 app.use('/api/descuentos', descuentosRoutes);
+app.use('/api/gastos-fijos', gastosFijosRoutes);
+app.use('/api/envios', enviosRoutes);
+app.use('/api/devoluciones-clientes', devolucionesClientesRoutes);
+app.use('/api/devoluciones-proveedores', devolucionesProveedoresRoutes);
+
 
 
 
