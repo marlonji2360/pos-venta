@@ -17,6 +17,7 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import UndoIcon from '@mui/icons-material/Undo';
 import ReplyIcon from '@mui/icons-material/Reply';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import {
   Box,
   AppBar,
@@ -127,6 +128,8 @@ useEffect(() => {
     { text: 'Devoluciones Proveedores', icon: <ReplyIcon />, path: '/devoluciones-proveedores', roles: ['Administrador', 'Gerente'] },
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion', roles: ['Administrador'] },
     { text: 'Usuarios', icon: <ManageAccountsIcon />, path: '/usuarios', roles: ['Administrador'] },
+    { text: 'Reimprimir Comprobantes', icon: <ReceiptLongIcon />, path: '/reimpresion-comprobantes',roles: ['Administrador', 'Gerente', 'Vendedor']
+},
   ];
 
   // Filtrar menú según rol del usuario

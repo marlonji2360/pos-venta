@@ -252,7 +252,6 @@ router.get('/:id', async (req, res) => {
       `SELECT 
         v.*,
         u.nombre as vendedor_nombre,
-        u.nombre as usuario_nombre,
         c.nombre as cliente_nombre,
         c.telefono as cliente_telefono,
         c.email as cliente_email
@@ -269,49 +268,26 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    const productosResult = await query(
+    const detalleResult = await query(
       `SELECT 
         dv.*,
-        dv.subtotal,
         p.nombre as producto_nombre,
-        p.codigo_barras,
-        p.unidad_medida
+        p.codigo_barras
       FROM detalle_ventas dv
       JOIN productos p ON dv.producto_id = p.id
-      WHERE dv.venta_id = $1
-      ORDER BY dv.id`,
+      WHERE dv.venta_id = $1`,
       [id]
     );
 
-    // Si la venta tiene envío, obtener datos del envío
-    let envio = null;
-    if (ventaResult.rows[0].es_envio) {
-      const envioResult = await query(
-        `SELECT 
-          e.*,
-          u.nombre as piloto_nombre
-        FROM envios e
-        LEFT JOIN usuarios u ON e.piloto_id = u.id
-        WHERE e.venta_id = $1`,
-        [id]
-      );
-      
-      if (envioResult.rows.length > 0) {
-        envio = envioResult.rows[0];
-      }
-    }
-
     res.json({
       venta: ventaResult.rows[0],
-      productos: productosResult.rows,  // CAMBIADO: detalle → productos
-      envio: envio
+      detalle: detalleResult.rows
     });
 
   } catch (error) {
     console.error('Error al obtener venta:', error);
     res.status(500).json({ 
-      error: 'Error al obtener detalle de venta',
-      detalle: error.message
+      error: 'Error al obtener detalle de venta' 
     });
   }
 });

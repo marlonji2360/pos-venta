@@ -25,6 +25,7 @@ import GastosFijos from './pages/GastosFijos';
 import Envios from './pages/Envios';
 import DevolucionesClientes from './pages/DevolucionesClientes';
 import DevolucionesProveedores from './pages/DevolucionesProveedores';
+import ReimpresionComprobantes from './pages/ReimpresionComprobantes';
 
 const theme = createTheme({
   palette: {
@@ -84,6 +85,7 @@ function App() {
               <Route path="envios" element={<Envios />} />
               <Route path="devoluciones-clientes" element={<DevolucionesClientes />} />
               <Route path="devoluciones-proveedores" element={<DevolucionesProveedores />} />
+              <Route path="reimpresion-comprobantes" element={<ReimpresionComprobantes />} />
             </Route>
           </Routes>
         </BrowserRouter>
