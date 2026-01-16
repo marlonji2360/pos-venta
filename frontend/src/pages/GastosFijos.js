@@ -5,7 +5,8 @@ import {
   Box, Card, CardContent, Typography, Button, TextField, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, IconButton, Grid, Alert,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab,
-  Select, MenuItem, FormControl, InputLabel, Autocomplete,
+  Select, MenuItem, FormControl, InputLabel, TablePagination, Paper,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
@@ -13,7 +14,7 @@ import {
   CheckCircle as CheckIcon, Warning as WarningIcon,
   Receipt as ReceiptIcon,
 } from '@mui/icons-material';
-import { format, addMonths } from 'date-fns';
+import { format } from 'date-fns';
 
 const GastosFijos = () => {
   const [loading, setLoading] = useState(false);
@@ -28,11 +29,21 @@ const GastosFijos = () => {
   const [openDialogGasto, setOpenDialogGasto] = useState(false);
   const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
   
+  // Paginación gastos
+  const [pageGastos, setPageGastos] = useState(0);
+  const [rowsPerPageGastos, setRowsPerPageGastos] = useState(25);
+  const [totalGastos, setTotalGastos] = useState(0);
+  
   // Estados para pagos
   const [pagos, setPagos] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('pendiente');
   const [openDialogPago, setOpenDialogPago] = useState(false);
   const [pagoSeleccionado, setPagoSeleccionado] = useState(null);
+  
+  // Paginación pagos
+  const [pagePagos, setPagePagos] = useState(0);
+  const [rowsPerPagePagos, setRowsPerPagePagos] = useState(25);
+  const [totalPagos, setTotalPagos] = useState(0);
   
   // Estados del formulario de gasto
   const [formGasto, setFormGasto] = useState({
@@ -58,7 +69,7 @@ const GastosFijos = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, [tabActual, filtroEstado]);
+  }, [tabActual, filtroEstado, pageGastos, rowsPerPageGastos, pagePagos, rowsPerPagePagos]);
 
   const cargarDatos = async () => {
     try {
@@ -66,19 +77,35 @@ const GastosFijos = () => {
       
       if (tabActual === 0) {
         const [gastosRes, categoriasRes] = await Promise.all([
-          api.get('/api/gastos-fijos?activo=true'),
+          api.get('/api/gastos-fijos', { 
+            params: { 
+              activo: 'true',
+              page: pageGastos + 1,
+              limit: rowsPerPageGastos
+            } 
+          }),
           api.get('/api/gastos-fijos/categorias'),
         ]);
-        setGastos(gastosRes.data.gastos);
-        setCategorias(categoriasRes.data.categorias);
+        
+        setGastos(gastosRes.data.gastos || []);
+        setTotalGastos(gastosRes.data.total || 0);
+        setCategorias(categoriasRes.data.categorias || []);
       } else {
         const mesActual = new Date().getMonth() + 1;
         const anioActual = new Date().getFullYear();
         
         const pagosRes = await api.get('/api/gastos-fijos/pagos', {
-          params: { estado: filtroEstado === 'todos' ? null : filtroEstado, mes: mesActual, anio: anioActual }
+          params: { 
+            estado: filtroEstado === 'todos' ? null : filtroEstado, 
+            mes: mesActual, 
+            anio: anioActual,
+            page: pagePagos + 1,
+            limit: rowsPerPagePagos
+          }
         });
-        setPagos(pagosRes.data.pagos);
+        
+        setPagos(pagosRes.data.pagos || []);
+        setTotalPagos(pagosRes.data.total || 0);
       }
     } catch (err) {
       setError('Error al cargar datos');
@@ -86,6 +113,25 @@ const GastosFijos = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Paginación
+  const handleChangePageGastos = (event, newPage) => {
+    setPageGastos(newPage);
+  };
+
+  const handleChangeRowsPerPageGastos = (event) => {
+    setRowsPerPageGastos(parseInt(event.target.value, 10));
+    setPageGastos(0);
+  };
+
+  const handleChangePagePagos = (event, newPage) => {
+    setPagePagos(newPage);
+  };
+
+  const handleChangeRowsPerPagePagos = (event) => {
+    setRowsPerPagePagos(parseInt(event.target.value, 10));
+    setPagePagos(0);
   };
 
   // ============================================
@@ -238,155 +284,165 @@ const GastosFijos = () => {
         </Box>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
-          {success}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
 
       <Card>
         <Tabs value={tabActual} onChange={(e, v) => setTabActual(v)}>
-          <Tab label="Gastos Fijos" />
-          <Tab label="Pagos del Mes" />
+          <Tab label="📋 Gastos Fijos" />
+          <Tab label="💳 Pagos del Mes" />
         </Tabs>
 
         <CardContent>
-          {/* TAB 0: GASTOS FIJOS */}
+          {/* TAB 1: GASTOS FIJOS */}
           {tabActual === 0 && (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Nombre</TableCell>
-                    <TableCell>Categoría</TableCell>
-                    <TableCell>Monto</TableCell>
-                    <TableCell>Frecuencia</TableCell>
-                    <TableCell>Día Vencimiento</TableCell>
-                    <TableCell>Proveedor</TableCell>
-                    <TableCell align="center">Acciones</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {gastos.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center">
-                        <Typography color="text.secondary">No hay gastos fijos registrados</Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    gastos.map((gasto) => (
-                      <TableRow key={gasto.id}>
-                        <TableCell>{gasto.nombre}</TableCell>
-                        <TableCell>
-                          <Chip 
-                            label={gasto.categoria_nombre || 'Sin categoría'} 
-                            size="small"
-                            color={gasto.color || 'default'}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Typography fontWeight="bold">Q{parseFloat(gasto.monto).toFixed(2)}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={gasto.frecuencia} size="small" variant="outlined" />
-                        </TableCell>
-                        <TableCell>Día {gasto.dia_vencimiento}</TableCell>
-                        <TableCell>{gasto.proveedor || '-'}</TableCell>
-                        <TableCell align="center">
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => handleOpenDialogGasto(gasto)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleEliminarGasto(gasto.id)}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-
-          {/* TAB 1: PAGOS */}
-          {tabActual === 1 && (
             <>
-              <Box sx={{ mb: 2, display: 'flex', gap: 2 }}>
-                <FormControl size="small" sx={{ minWidth: 200 }}>
-                  <InputLabel>Filtrar por Estado</InputLabel>
-                  <Select
-                    value={filtroEstado}
-                    label="Filtrar por Estado"
-                    onChange={(e) => setFiltroEstado(e.target.value)}
-                  >
-                    <MenuItem value="todos">Todos</MenuItem>
-                    <MenuItem value="pendiente">Pendiente</MenuItem>
-                    <MenuItem value="pagado">Pagado</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-
-              <TableContainer>
+              <TableContainer component={Paper}>
                 <Table>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Gasto</TableCell>
-                      <TableCell>Fecha Vencimiento</TableCell>
-                      <TableCell>Monto</TableCell>
+                      <TableCell>Nombre</TableCell>
+                      <TableCell>Categoría</TableCell>
+                      <TableCell align="right">Monto</TableCell>
+                      <TableCell>Frecuencia</TableCell>
+                      <TableCell>Día Venc.</TableCell>
                       <TableCell>Proveedor</TableCell>
-                      <TableCell>Estado</TableCell>
                       <TableCell align="center">Acciones</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {pagos.length === 0 ? (
+                    {loading ? (
                       <TableRow>
-                        <TableCell colSpan={6} align="center">
-                          <Typography color="text.secondary">No hay pagos para mostrar</Typography>
+                        <TableCell colSpan={7} align="center">
+                          <CircularProgress size={30} sx={{ my: 2 }} />
+                        </TableCell>
+                      </TableRow>
+                    ) : gastos.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} align="center">
+                          No hay gastos fijos registrados
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      gastos.map((gasto) => (
+                        <TableRow key={gasto.id}>
+                          <TableCell>{gasto.nombre}</TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={gasto.categoria_nombre || 'Sin categoría'} 
+                              size="small"
+                              color={gasto.color || 'default'}
+                            />
+                          </TableCell>
+                          <TableCell align="right">Q{parseFloat(gasto.monto).toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Chip label={gasto.frecuencia} size="small" variant="outlined" />
+                          </TableCell>
+                          <TableCell>Día {gasto.dia_vencimiento}</TableCell>
+                          <TableCell>{gasto.proveedor || '-'}</TableCell>
+                          <TableCell align="center">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleOpenDialogGasto(gasto)}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleEliminarGasto(gasto.id)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Paginación Gastos */}
+              <TablePagination
+                component="div"
+                count={totalGastos}
+                page={pageGastos}
+                onPageChange={handleChangePageGastos}
+                rowsPerPage={rowsPerPageGastos}
+                onRowsPerPageChange={handleChangeRowsPerPageGastos}
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                labelRowsPerPage="Gastos por página:"
+                labelDisplayedRows={({ from, to, count }) => 
+                  `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+                }
+              />
+            </>
+          )}
+
+          {/* TAB 2: PAGOS DEL MES */}
+          {tabActual === 1 && (
+            <>
+              <Box sx={{ mb: 3 }}>
+                <FormControl sx={{ minWidth: 200 }}>
+                  <InputLabel>Estado</InputLabel>
+                  <Select
+                    value={filtroEstado}
+                    label="Estado"
+                    onChange={(e) => setFiltroEstado(e.target.value)}
+                  >
+                    <MenuItem value="todos">Todos</MenuItem>
+                    <MenuItem value="pendiente">Pendientes</MenuItem>
+                    <MenuItem value="pagado">Pagados</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+
+              <TableContainer component={Paper}>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Gasto</TableCell>
+                      <TableCell>Categoría</TableCell>
+                      <TableCell>Proveedor</TableCell>
+                      <TableCell>Vencimiento</TableCell>
+                      <TableCell align="right">Monto</TableCell>
+                      <TableCell>Estado</TableCell>
+                      <TableCell align="center">Acción</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={7} align="center">
+                          <CircularProgress size={30} sx={{ my: 2 }} />
+                        </TableCell>
+                      </TableRow>
+                    ) : pagos.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} align="center">
+                          No hay pagos para este mes
                         </TableCell>
                       </TableRow>
                     ) : (
                       pagos.map((pago) => (
                         <TableRow key={pago.id}>
+                          <TableCell>{pago.gasto_nombre}</TableCell>
                           <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Chip 
-                                label={pago.categoria_nombre} 
-                                size="small"
-                                sx={{ bgcolor: pago.color }}
-                              />
-                              <Typography>{pago.gasto_nombre}</Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            {format(new Date(pago.fecha_vencimiento), 'dd/MM/yyyy')}
-                          </TableCell>
-                          <TableCell>
-                            <Typography fontWeight="bold">
-                              Q{parseFloat(pago.monto_pagado || 0).toFixed(2)}
-                            </Typography>
+                            <Chip 
+                              label={pago.categoria_nombre} 
+                              size="small"
+                              color={pago.color || 'default'}
+                            />
                           </TableCell>
                           <TableCell>{pago.proveedor || '-'}</TableCell>
+                          <TableCell>{format(new Date(pago.fecha_vencimiento), 'dd/MM/yyyy')}</TableCell>
+                          <TableCell align="right">Q{parseFloat(pago.monto_pagado).toFixed(2)}</TableCell>
                           <TableCell>
                             <Chip
                               label={getTextoEstado(pago.estado_alerta, pago.dias_restantes)}
                               size="small"
                               color={getColorEstado(pago.estado_alerta)}
-                              icon={pago.estado_alerta === 'vencido' ? <WarningIcon /> : undefined}
                             />
                           </TableCell>
                           <TableCell align="center">
@@ -395,7 +451,7 @@ const GastosFijos = () => {
                                 size="small"
                                 variant="contained"
                                 color="success"
-                                startIcon={<CheckIcon />}
+                                startIcon={<MoneyIcon />}
                                 onClick={() => handleOpenDialogPago(pago)}
                               >
                                 Pagar
@@ -411,6 +467,21 @@ const GastosFijos = () => {
                   </TableBody>
                 </Table>
               </TableContainer>
+
+              {/* Paginación Pagos */}
+              <TablePagination
+                component="div"
+                count={totalPagos}
+                page={pagePagos}
+                onPageChange={handleChangePagePagos}
+                rowsPerPage={rowsPerPagePagos}
+                onRowsPerPageChange={handleChangeRowsPerPagePagos}
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                labelRowsPerPage="Pagos por página:"
+                labelDisplayedRows={({ from, to, count }) => 
+                  `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+                }
+              />
             </>
           )}
         </CardContent>

@@ -7,15 +7,110 @@ const { verificarToken, verificarRol } = require('../middleware/auth');
 router.use(verificarToken);
 
 // ============================================
+// UTILIDAD DE PAGINACIÓN
+// ============================================
+
+/**
+ * Función helper para construir respuesta paginada
+ */
+const construirRespuestaPaginada = (datos, nombreCampo, page, limit, total) => {
+  const totalPages = Math.ceil(total / limit);
+  
+  return {
+    [nombreCampo]: datos,  // 'envios'
+    datos: datos,          // Para compatibilidad
+    paginacion: {
+      paginaActual: parseInt(page),
+      porPagina: parseInt(limit),
+      totalRegistros: parseInt(total),
+      totalPaginas: totalPages,
+      tienePaginaAnterior: page > 1,
+      tienePaginaSiguiente: page < totalPages
+    },
+    // Mantener compatibilidad
+    total: parseInt(total),
+    limit: parseInt(limit),
+    offset: (page - 1) * limit
+  };
+};
+
+// ============================================
 // ENVÍOS - CRUD COMPLETO
 // ============================================
 
-// GET /api/envios - Listar envíos (con filtros)
+// GET /api/envios - Listar envíos (CON PAGINACIÓN)
 router.get('/', async (req, res) => {
   try {
-    const { estado, piloto_id, fecha_inicio, fecha_fin } = req.query;
+    const { estado, piloto_id, fecha_inicio, fecha_fin, buscar } = req.query;
     
-    let queryText = `
+    // Paginación
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+    
+    let baseQuery = `
+      FROM envios e
+      JOIN ventas v ON e.venta_id = v.id
+      LEFT JOIN clientes c ON v.cliente_id = c.id
+      LEFT JOIN usuarios p ON e.piloto_id = p.id
+      LEFT JOIN usuarios u ON v.usuario_id = u.id
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let paramCount = 1;
+
+    // Filtro por rol
+    if (req.usuario.rol === 'Piloto') {
+      baseQuery += ` AND e.piloto_id = $${paramCount}`;
+      params.push(req.usuario.id);
+      paramCount++;
+    }
+
+    if (estado) {
+      baseQuery += ` AND e.estado = $${paramCount}`;
+      params.push(estado);
+      paramCount++;
+    }
+
+    if (piloto_id && (req.usuario.rol === 'Administrador' || req.usuario.rol === 'Gerente')) {
+      baseQuery += ` AND e.piloto_id = $${paramCount}`;
+      params.push(piloto_id);
+      paramCount++;
+    }
+
+    if (fecha_inicio) {
+      baseQuery += ` AND DATE(e.fecha_pedido) >= $${paramCount}`;
+      params.push(fecha_inicio);
+      paramCount++;
+    }
+
+    if (fecha_fin) {
+      baseQuery += ` AND DATE(e.fecha_pedido) <= $${paramCount}`;
+      params.push(fecha_fin);
+      paramCount++;
+    }
+
+    // Búsqueda
+    if (buscar && buscar.trim()) {
+      baseQuery += ` AND (
+        v.folio ILIKE $${paramCount} OR
+        c.nombre ILIKE $${paramCount} OR
+        c.telefono ILIKE $${paramCount} OR
+        e.direccion_entrega ILIKE $${paramCount} OR
+        p.nombre ILIKE $${paramCount}
+      )`;
+      params.push(`%${buscar.trim()}%`);
+      paramCount++;
+    }
+
+    // Contar total
+    const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
+    const countResult = await query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    // Obtener datos paginados
+    let dataQuery = `
       SELECT 
         e.*,
         v.folio as venta_folio,
@@ -32,55 +127,21 @@ router.get('/', async (req, res) => {
             EXTRACT(EPOCH FROM (e.fecha_entrega - e.fecha_pedido))/60
           ELSE NULL
         END as tiempo_total_minutos
-      FROM envios e
-      JOIN ventas v ON e.venta_id = v.id
-      LEFT JOIN clientes c ON v.cliente_id = c.id
-      LEFT JOIN usuarios p ON e.piloto_id = p.id
-      LEFT JOIN usuarios u ON v.usuario_id = u.id
-      WHERE 1=1
+      ${baseQuery}
+      ORDER BY e.fecha_pedido DESC
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}
     `;
+    params.push(limit, offset);
 
-    const params = [];
-    let paramCount = 1;
+    const result = await query(dataQuery, params);
 
-    // Filtro por rol
-    if (req.usuario.rol === 'Piloto') {
-      queryText += ` AND e.piloto_id = $${paramCount}`;
-      params.push(req.usuario.id);
-      paramCount++;
-    }
-
-    if (estado) {
-      queryText += ` AND e.estado = $${paramCount}`;
-      params.push(estado);
-      paramCount++;
-    }
-
-    if (piloto_id && (req.usuario.rol === 'Administrador' || req.usuario.rol === 'Gerente')) {
-      queryText += ` AND e.piloto_id = $${paramCount}`;
-      params.push(piloto_id);
-      paramCount++;
-    }
-
-    if (fecha_inicio) {
-      queryText += ` AND DATE(e.fecha_pedido) >= $${paramCount}`;
-      params.push(fecha_inicio);
-      paramCount++;
-    }
-
-    if (fecha_fin) {
-      queryText += ` AND DATE(e.fecha_pedido) <= $${paramCount}`;
-      params.push(fecha_fin);
-      paramCount++;
-    }
-
-    queryText += ` ORDER BY e.fecha_pedido DESC`;
-
-    const result = await query(queryText, params);
-
-    res.json({
-      envios: result.rows
-    });
+    res.json(construirRespuestaPaginada(
+      result.rows,
+      'envios',
+      page,
+      limit,
+      total
+    ));
 
   } catch (error) {
     console.error('Error al listar envíos:', error);

@@ -24,6 +24,8 @@ import {
   Chip,
   Switch,
   Autocomplete,
+  TablePagination,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +40,11 @@ const GestionDescuentos = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  
+  // Estados de paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalDescuentos, setTotalDescuentos] = useState(0);
   
   const [descuentos, setDescuentos] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -56,17 +63,24 @@ const GestionDescuentos = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+  }, [page, rowsPerPage]);
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
+      
+      const params = new URLSearchParams({
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+      });
+      
       const [descuentosRes, productosRes] = await Promise.all([
-        api.get('/api/descuentos/volumen'),
-        api.get('/api/productos?activo=true'),
+        api.get(`/api/descuentos/volumen?${params.toString()}`),
+        api.get('/api/productos?activo=true&limit=1000'),
       ]);
       
       setDescuentos(descuentosRes.data.descuentos);
+      setTotalDescuentos(descuentosRes.data.total);
       setProductos(productosRes.data.productos);
     } catch (err) {
       setError('Error al cargar datos');
@@ -74,6 +88,15 @@ const GestionDescuentos = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
   };
 
   const handleOpenDialog = (descuento = null) => {
@@ -281,7 +304,11 @@ const GestionDescuentos = () => {
       </Alert>
 
       {/* Lista de descuentos agrupados por producto */}
-      {Object.keys(descuentosAgrupados).length === 0 ? (
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
+          <CircularProgress />
+        </Box>
+      ) : Object.keys(descuentosAgrupados).length === 0 ? (
         <Card>
           <CardContent>
             <Box sx={{ textAlign: 'center', py: 5 }}>
@@ -417,6 +444,25 @@ const GestionDescuentos = () => {
             </CardContent>
           </Card>
         ))
+      )}
+
+      {/* Paginación */}
+      {descuentos.length > 0 && (
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+          <TablePagination
+            component="div"
+            count={totalDescuentos}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            labelRowsPerPage="Descuentos por página:"
+            labelDisplayedRows={({ from, to, count }) => 
+              `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+            }
+          />
+        </Box>
       )}
 
       {/* Diálogo: Crear/Editar Descuento */}

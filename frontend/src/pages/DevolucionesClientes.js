@@ -6,12 +6,12 @@ import {
   TableCell, TableContainer, TableHead, TableRow, IconButton, Grid, Alert,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab,
   FormControl, InputLabel, Select, MenuItem, Autocomplete, Checkbox,
-  FormControlLabel, Paper, InputAdornment,
+  FormControlLabel, Paper, InputAdornment, TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon, Delete as DeleteIcon, Visibility as VisibilityIcon,
   Refresh as RefreshIcon, Search as SearchIcon, SwapHoriz as SwapIcon,
-  Undo as UndoIcon, ShoppingCart as CartIcon,
+  Undo as UndoIcon, ShoppingCart as CartIcon, ShoppingCart,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 
@@ -28,7 +28,14 @@ const DevolucionesClientes = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [openDetalle, setOpenDetalle] = useState(false);
   const [devolucionDetalle, setDevolucionDetalle] = useState(null);
-  const [tabActual, setTabActual] = useState(0); // 0=Devolución, 1=Cambio
+  const [tabActual, setTabActual] = useState(0); // 0=Todas, 1=Procesadas, 2=Pendientes, 3=Canceladas
+  
+  // Paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  
+  // Búsqueda
+  const [busqueda, setBusqueda] = useState('');
   
   // Formulario
   const [tipo, setTipo] = useState('devolucion');
@@ -207,109 +214,217 @@ const DevolucionesClientes = () => {
     }, 0);
   };
 
+  // Filtrar devoluciones según tab y búsqueda
+  const devolucionesFiltradas = devoluciones.filter(dev => {
+    // Filtro por tab (estado)
+    let pasaFiltroTab = true;
+    if (tabActual === 1) pasaFiltroTab = dev.estado === 'procesada';
+    if (tabActual === 2) pasaFiltroTab = dev.estado === 'pendiente';
+    if (tabActual === 3) pasaFiltroTab = dev.estado === 'cancelada';
+
+    // Filtro por búsqueda
+    let pasaFiltroBusqueda = true;
+    if (busqueda.trim()) {
+      const termino = busqueda.toLowerCase();
+      pasaFiltroBusqueda = 
+        dev.folio?.toLowerCase().includes(termino) ||
+        dev.cliente_nombre?.toLowerCase().includes(termino) ||
+        dev.venta_folio?.toLowerCase().includes(termino) ||
+        dev.tipo?.toLowerCase().includes(termino);
+    }
+
+    return pasaFiltroTab && pasaFiltroBusqueda;
+  });
+
+  // Paginación
+  const devolucionesPaginadas = devolucionesFiltradas.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleChangeTab = (event, newValue) => {
+    setTabActual(newValue);
+    setPage(0); // Reset a primera página al cambiar tab
+  };
+
+  // Contar por estado
+  const contarPorEstado = (estado) => {
+    if (!estado) return devoluciones.length;
+    return devoluciones.filter(d => d.estado === estado).length;
+  };
+
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" gutterBottom>
-            🔄 Devoluciones de Clientes
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Gestiona devoluciones y cambios de productos
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={cargarDatos}
-          >
-            Actualizar
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={<UndoIcon />}
-            onClick={() => handleOpenDialog('devolucion')}
-          >
-            Nueva Devolución
-          </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<SwapIcon />}
-            onClick={() => handleOpenDialog('cambio')}
-          >
-            Nuevo Cambio
-          </Button>
-        </Box>
-      </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
-          {success}
-        </Alert>
-      )}
-
-      <Card>
+    <Box sx={{ p: 3 }}>
+      <Card sx={{ mb: 3 }}>
         <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h5">Devoluciones de Clientes</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={cargarDatos}
+              >
+                Actualizar
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                startIcon={<UndoIcon />}
+                onClick={() => handleOpenDialog('devolucion')}
+              >
+                Nueva Devolución
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<SwapIcon />}
+                onClick={() => handleOpenDialog('cambio')}
+              >
+                Nuevo Cambio
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Mensajes */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+          {success && (
+            <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+              {success}
+            </Alert>
+          )}
+
+          {/* Barra de búsqueda */}
+          <TextField
+            fullWidth
+            placeholder="Buscar por folio, cliente, venta o tipo..."
+            value={busqueda}
+            onChange={(e) => {
+              setBusqueda(e.target.value);
+              setPage(0); // Reset a primera página al buscar
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
+
+          {/* Tabs de estado */}
+          <Tabs value={tabActual} onChange={handleChangeTab} sx={{ mb: 2 }}>
+            <Tab 
+              label={`Todas (${contarPorEstado(null)})`} 
+              icon={<ShoppingCart />} 
+              iconPosition="start"
+            />
+            <Tab 
+              label={`Procesadas (${contarPorEstado('procesada')})`}
+              icon={<Chip label="P" size="small" color="success" />}
+              iconPosition="start"
+            />
+            <Tab 
+              label={`Pendientes (${contarPorEstado('pendiente')})`}
+              icon={<Chip label="P" size="small" color="warning" />}
+              iconPosition="start"
+            />
+            <Tab 
+              label={`Canceladas (${contarPorEstado('cancelada')})`}
+              icon={<Chip label="C" size="small" color="error" />}
+              iconPosition="start"
+            />
+          </Tabs>
+
+          {/* Tabla */}
           <TableContainer>
             <Table>
               <TableHead>
                 <TableRow>
                   <TableCell>Folio</TableCell>
+                  <TableCell>Fecha</TableCell>
                   <TableCell>Tipo</TableCell>
                   <TableCell>Cliente</TableCell>
                   <TableCell>Venta</TableCell>
-                  <TableCell>Monto</TableCell>
-                  <TableCell>Fecha</TableCell>
+                  <TableCell align="right">Monto</TableCell>
                   <TableCell>Estado</TableCell>
+                  <TableCell>Usuario</TableCell>
                   <TableCell align="center">Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {devoluciones.length === 0 ? (
+                {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center">
-                      <Typography color="text.secondary">No hay devoluciones registradas</Typography>
+                    <TableCell colSpan={9} align="center">Cargando...</TableCell>
+                  </TableRow>
+                ) : devolucionesPaginadas.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center">
+                      No hay devoluciones {tabActual > 0 ? 'en este estado' : 'registradas'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  devoluciones.map((dev) => (
-                    <TableRow key={dev.id}>
+                  devolucionesPaginadas.map((dev) => (
+                    <TableRow key={dev.id} hover>
                       <TableCell>
-                        <Chip label={dev.folio} size="small" />
+                        <Typography variant="body2" fontWeight="bold">
+                          {dev.folio}
+                        </Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip 
-                          label={dev.tipo === 'devolucion' ? 'Devolución' : 'Cambio'} 
-                          size="small"
+                        {dev.fecha_devolucion ? format(new Date(dev.fecha_devolucion), 'dd/MM/yyyy HH:mm') : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={dev.tipo === 'devolucion' ? 'Devolución' : 'Cambio'}
                           color={dev.tipo === 'devolucion' ? 'error' : 'primary'}
+                          size="small"
+                          icon={dev.tipo === 'devolucion' ? <UndoIcon /> : <SwapIcon />}
                         />
                       </TableCell>
                       <TableCell>{dev.cliente_nombre || '-'}</TableCell>
                       <TableCell>{dev.venta_folio || '-'}</TableCell>
-                      <TableCell>Q{parseFloat(dev.monto_devuelto).toFixed(2)}</TableCell>
-                      <TableCell>
-                        {format(new Date(dev.fecha_devolucion), 'dd/MM/yyyy HH:mm')}
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight="bold">
+                          Q{parseFloat(dev.monto_devuelto || 0).toFixed(2)}
+                        </Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip 
-                          label={dev.estado} 
-                          size="small" 
-                          color="success"
+                        <Chip
+                          label={
+                            dev.estado === 'procesada' ? 'Procesada' :
+                            dev.estado === 'pendiente' ? 'Pendiente' :
+                            dev.estado === 'cancelada' ? 'Cancelada' : dev.estado
+                          }
+                          color={
+                            dev.estado === 'procesada' ? 'success' :
+                            dev.estado === 'pendiente' ? 'warning' :
+                            dev.estado === 'cancelada' ? 'error' : 'default'
+                          }
+                          size="small"
                         />
                       </TableCell>
+                      <TableCell>{dev.usuario_nombre}</TableCell>
                       <TableCell align="center">
                         <IconButton
                           size="small"
+                          color="primary"
                           onClick={() => handleVerDetalle(dev.id)}
+                          title="Ver detalle"
                         >
                           <VisibilityIcon />
                         </IconButton>
@@ -320,70 +435,92 @@ const DevolucionesClientes = () => {
               </TableBody>
             </Table>
           </TableContainer>
+
+          {/* Paginación */}
+          <TablePagination
+            component="div"
+            count={devolucionesFiltradas.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            labelRowsPerPage="Filas por página:"
+            labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+            rowsPerPageOptions={[5, 10, 25, 50, 100]}
+          />
         </CardContent>
       </Card>
 
       {/* Diálogo: Nueva Devolución/Cambio */}
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="lg" fullWidth>
-        <DialogTitle sx={{ bgcolor: tipo === 'devolucion' ? 'error.main' : 'primary.main', color: 'white' }}>
-          {tipo === 'devolucion' ? '🔄 Nueva Devolución' : '🔁 Nuevo Cambio'}
+        <DialogTitle>
+          Nueva {tipo === 'devolucion' ? 'Devolución' : 'Cambio'}
+          <Typography variant="body2" color="text.secondary">
+            {tipo === 'devolucion' 
+              ? 'Registra productos devueltos por el cliente' 
+              : 'Registra el cambio de productos'}
+          </Typography>
         </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          <Grid container spacing={2}>
-            {/* Búsqueda de venta */}
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            {/* Buscar venta */}
             <Grid item xs={12}>
-              <Alert severity="info">
-                Busca la venta por folio o crea una devolución manual
-              </Alert>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Buscar Venta (Opcional)
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <TextField
+                      fullWidth
+                      label="Folio de venta"
+                      value={folioVenta}
+                      onChange={(e) => setFolioVenta(e.target.value)}
+                      placeholder="Ej: VTA-000001"
+                    />
+                    <Button variant="contained" onClick={buscarVenta}>
+                      <SearchIcon />
+                    </Button>
+                  </Box>
+                  {ventaSeleccionada && (
+                    <Alert severity="success" sx={{ mt: 1 }}>
+                      Venta {ventaSeleccionada.folio} cargada - Total: Q{parseFloat(ventaSeleccionada.total).toFixed(2)}
+                    </Alert>
+                  )}
+                </CardContent>
+              </Card>
             </Grid>
 
-            <Grid item xs={12} md={8}>
-              <TextField
-                fullWidth
-                label="Folio de Venta"
-                value={folioVenta}
-                onChange={(e) => setFolioVenta(e.target.value)}
-                placeholder="Ej: VTA-000001"
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton onClick={buscarVenta}>
-                        <SearchIcon />
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
+            {/* Cliente */}
+            <Grid item xs={12} md={6}>
+              <Autocomplete
+                options={clientes}
+                getOptionLabel={(option) => `${option.nombre} - ${option.telefono || 'Sin tel.'}`}
+                value={clienteSeleccionado}
+                onChange={(e, value) => setClienteSeleccionado(value)}
+                renderInput={(params) => <TextField {...params} label="Cliente (Opcional)" />}
+                disabled={!!ventaSeleccionada}
               />
             </Grid>
 
-            <Grid item xs={12} md={4}>
-              <Button
-                fullWidth
-                variant="outlined"
-                onClick={agregarProductoManual}
-                startIcon={<AddIcon />}
-                sx={{ height: '56px' }}
-              >
-                Agregar Manual
-              </Button>
-            </Grid>
-
-            {/* Información de venta */}
-            {ventaSeleccionada && (
-              <Grid item xs={12}>
-                <Paper sx={{ p: 2, bgcolor: 'success.light' }}>
-                  <Typography variant="body2">
-                    <strong>Venta:</strong> {ventaSeleccionada.folio} | 
-                    <strong> Total:</strong> Q{parseFloat(ventaSeleccionada.total).toFixed(2)} | 
-                    <strong> Fecha:</strong> {format(new Date(ventaSeleccionada.fecha_venta), 'dd/MM/yyyy')}
-                  </Typography>
-                </Paper>
+            {/* Agregar producto manual */}
+            {!ventaSeleccionada && (
+              <Grid item xs={12} md={6}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={agregarProductoManual}
+                  sx={{ height: '56px' }}
+                >
+                  Agregar Producto Manual
+                </Button>
               </Grid>
             )}
 
-            {/* Productos */}
+            {/* Tabla de productos */}
             <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="subtitle2" gutterBottom>
                 Productos
               </Typography>
               <TableContainer component={Paper} variant="outlined">
@@ -564,6 +701,8 @@ const DevolucionesClientes = () => {
                           <TableCell>Producto</TableCell>
                           <TableCell>Cantidad</TableCell>
                           <TableCell>Precio</TableCell>
+                          {devolucionDetalle.devolucion.tipo === 'cambio' && <TableCell>Producto Cambio</TableCell>}
+                          {devolucionDetalle.devolucion.tipo === 'cambio' && <TableCell>Cant. Cambio</TableCell>}
                           <TableCell>Inv.</TableCell>
                         </TableRow>
                       </TableHead>
@@ -573,6 +712,12 @@ const DevolucionesClientes = () => {
                             <TableCell>{prod.producto_nombre}</TableCell>
                             <TableCell>{prod.cantidad}</TableCell>
                             <TableCell>Q{parseFloat(prod.precio_unitario).toFixed(2)}</TableCell>
+                            {devolucionDetalle.devolucion.tipo === 'cambio' && (
+                              <>
+                                <TableCell>{prod.producto_cambio_nombre || '-'}</TableCell>
+                                <TableCell>{prod.cantidad_cambio || 0}</TableCell>
+                              </>
+                            )}
                             <TableCell>
                               <Chip 
                                 label={prod.afecta_inventario ? 'Sí' : 'No'} 

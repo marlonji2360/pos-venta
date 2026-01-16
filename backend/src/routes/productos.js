@@ -10,7 +10,7 @@ router.use(verificarToken);
 // GET /api/productos - Listar todos los productos
 router.get('/', async (req, res) => {
   try {
-    const { activo, categoria_id, search, limit = 50, offset = 0 } = req.query;
+    const { activo, categoria_id, search, limit = 1000, offset = 0 } = req.query;
     
     let queryText = `
       SELECT p.*, c.nombre as categoria_nombre
@@ -45,10 +45,30 @@ router.get('/', async (req, res) => {
 
     const result = await query(queryText, params);
 
-    // Contar total de productos
-    const countResult = await query(
-      'SELECT COUNT(*) as total FROM productos WHERE activo = true'
-    );
+    // Contar total de productos con los mismos filtros
+    let countQuery = 'SELECT COUNT(*) as total FROM productos p WHERE 1=1';
+    const countParams = [];
+    let countParamCount = 1;
+
+    if (activo !== undefined) {
+      countQuery += ` AND p.activo = $${countParamCount}`;
+      countParams.push(activo === 'true');
+      countParamCount++;
+    }
+
+    if (categoria_id) {
+      countQuery += ` AND p.categoria_id = $${countParamCount}`;
+      countParams.push(categoria_id);
+      countParamCount++;
+    }
+
+    if (search) {
+      countQuery += ` AND (p.nombre ILIKE $${countParamCount} OR p.codigo_barras ILIKE $${countParamCount})`;
+      countParams.push(`%${search}%`);
+      countParamCount++;
+    }
+
+    const countResult = await query(countQuery, countParams);
 
     res.json({
       productos: result.rows,

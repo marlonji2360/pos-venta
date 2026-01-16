@@ -7,6 +7,34 @@ const { verificarToken, verificarRol } = require('../middleware/auth');
 router.use(verificarToken);
 
 // ============================================
+// UTILIDAD DE PAGINACIÓN
+// ============================================
+
+/**
+ * Función helper para construir respuesta paginada
+ */
+const construirRespuestaPaginada = (datos, nombreCampo, page, limit, total) => {
+  const totalPages = Math.ceil(total / limit);
+  
+  return {
+    [nombreCampo]: datos,  // 'gastos' o 'pagos'
+    datos: datos,          // Para compatibilidad con nuevo frontend
+    paginacion: {
+      paginaActual: parseInt(page),
+      porPagina: parseInt(limit),
+      totalRegistros: parseInt(total),
+      totalPaginas: totalPages,
+      tienePaginaAnterior: page > 1,
+      tienePaginaSiguiente: page < totalPages
+    },
+    // Mantener compatibilidad con frontend original
+    total: parseInt(total),
+    limit: parseInt(limit),
+    offset: (page - 1) * limit
+  };
+};
+
+// ============================================
 // CATEGORÍAS DE GASTOS
 // ============================================
 
@@ -32,11 +60,50 @@ router.get('/categorias', async (req, res) => {
 // GASTOS FIJOS (Plantillas)
 // ============================================
 
-// GET /api/gastos-fijos - Listar todos los gastos fijos
+// GET /api/gastos-fijos - Listar todos los gastos fijos (CON PAGINACIÓN)
 router.get('/', verificarRol('Administrador', 'Gerente'), async (req, res) => {
   try {
-    const { activo } = req.query;
+    const { activo, buscar } = req.query;
+    
+    // Paginación
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
 
+    // Construir WHERE clause
+    const conditions = [];
+    const params = [];
+    let paramCount = 1;
+
+    if (activo !== undefined) {
+      conditions.push(`gf.activo = $${paramCount}`);
+      params.push(activo === 'true');
+      paramCount++;
+    }
+
+    if (buscar && buscar.trim()) {
+      conditions.push(`(
+        gf.nombre ILIKE $${paramCount} OR 
+        gf.proveedor ILIKE $${paramCount} OR
+        cg.nombre ILIKE $${paramCount}
+      )`);
+      params.push(`%${buscar.trim()}%`);
+      paramCount++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM gastos_fijos gf
+      LEFT JOIN categorias_gastos cg ON gf.categoria_id = cg.id
+      ${whereClause}
+    `;
+    const countResult = await query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    // Obtener datos paginados
     let queryText = `
       SELECT 
         gf.*,
@@ -45,21 +112,21 @@ router.get('/', verificarRol('Administrador', 'Gerente'), async (req, res) => {
         cg.color
       FROM gastos_fijos gf
       LEFT JOIN categorias_gastos cg ON gf.categoria_id = cg.id
+      ${whereClause}
+      ORDER BY gf.nombre
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}
     `;
-
-    const params = [];
-    if (activo !== undefined) {
-      queryText += ` WHERE gf.activo = $1`;
-      params.push(activo === 'true');
-    }
-
-    queryText += ` ORDER BY gf.nombre`;
+    params.push(limit, offset);
 
     const result = await query(queryText, params);
 
-    res.json({
-      gastos: result.rows
-    });
+    res.json(construirRespuestaPaginada(
+      result.rows,
+      'gastos',
+      page,
+      limit,
+      total
+    ));
   } catch (error) {
     console.error('Error al listar gastos:', error);
     res.status(500).json({ error: 'Error al obtener gastos' });
@@ -189,11 +256,61 @@ router.delete('/:id', verificarRol('Administrador'), async (req, res) => {
 // PAGOS DE GASTOS
 // ============================================
 
-// GET /api/gastos-fijos/pagos - Listar pagos
+// GET /api/gastos-fijos/pagos - Listar pagos (CON PAGINACIÓN)
 router.get('/pagos', verificarRol('Administrador', 'Gerente'), async (req, res) => {
   try {
-    const { estado, mes, anio } = req.query;
+    const { estado, mes, anio, buscar } = req.query;
+    
+    // Paginación
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
 
+    // Construir condiciones WHERE
+    const conditions = ['gf.activo = true'];
+    const params = [];
+    let paramCount = 1;
+
+    if (estado) {
+      conditions.push(`pg.estado = $${paramCount}`);
+      params.push(estado);
+      paramCount++;
+    }
+
+    if (mes && anio) {
+      conditions.push(`EXTRACT(MONTH FROM pg.fecha_vencimiento) = $${paramCount}`);
+      params.push(mes);
+      paramCount++;
+      conditions.push(`EXTRACT(YEAR FROM pg.fecha_vencimiento) = $${paramCount}`);
+      params.push(anio);
+      paramCount++;
+    }
+
+    if (buscar && buscar.trim()) {
+      conditions.push(`(
+        gf.nombre ILIKE $${paramCount} OR 
+        gf.proveedor ILIKE $${paramCount} OR
+        cg.nombre ILIKE $${paramCount}
+      )`);
+      params.push(`%${buscar.trim()}%`);
+      paramCount++;
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    // Contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM pagos_gastos pg
+      JOIN gastos_fijos gf ON pg.gasto_fijo_id = gf.id
+      JOIN categorias_gastos cg ON gf.categoria_id = cg.id
+      LEFT JOIN usuarios u ON pg.usuario_id = u.id
+      ${whereClause}
+    `;
+    const countResult = await query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    // Obtener datos paginados
     let queryText = `
       SELECT 
         pg.*,
@@ -215,34 +332,21 @@ router.get('/pagos', verificarRol('Administrador', 'Gerente'), async (req, res) 
       JOIN gastos_fijos gf ON pg.gasto_fijo_id = gf.id
       JOIN categorias_gastos cg ON gf.categoria_id = cg.id
       LEFT JOIN usuarios u ON pg.usuario_id = u.id
-      WHERE gf.activo = true
+      ${whereClause}
+      ORDER BY pg.fecha_vencimiento ASC
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}
     `;
-
-    const params = [];
-    let paramCount = 1;
-
-    if (estado) {
-      queryText += ` AND pg.estado = $${paramCount}`;
-      params.push(estado);
-      paramCount++;
-    }
-
-    if (mes && anio) {
-      queryText += ` AND EXTRACT(MONTH FROM pg.fecha_vencimiento) = $${paramCount}`;
-      params.push(mes);
-      paramCount++;
-      queryText += ` AND EXTRACT(YEAR FROM pg.fecha_vencimiento) = $${paramCount}`;
-      params.push(anio);
-      paramCount++;
-    }
-
-    queryText += ` ORDER BY pg.fecha_vencimiento ASC`;
+    params.push(limit, offset);
 
     const result = await query(queryText, params);
 
-    res.json({
-      pagos: result.rows
-    });
+    res.json(construirRespuestaPaginada(
+      result.rows,
+      'pagos',
+      page,
+      limit,
+      total
+    ));
   } catch (error) {
     console.error('Error al listar pagos:', error);
     res.status(500).json({ error: 'Error al obtener pagos' });

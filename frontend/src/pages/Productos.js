@@ -27,6 +27,7 @@ import {
   CircularProgress,
   Alert,
   InputAdornment,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -47,6 +48,11 @@ const Productos = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoriaFiltro, setCategoriaFiltro] = useState('');
   const [gestionandoLotes, setGestionandoLotes] = useState(null);
+  
+  // Estados de paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalProductos, setTotalProductos] = useState(0);
 
   // Formulario
   const [formData, setFormData] = useState({
@@ -66,22 +72,59 @@ const Productos = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+  }, [page, rowsPerPage, searchTerm, categoriaFiltro]); // Recargar cuando cambien los filtros o paginación
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
+      
+      // Construir query params
+      const params = new URLSearchParams({
+        activo: 'true',
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+      });
+      
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      
+      if (categoriaFiltro) {
+        params.append('categoria_id', categoriaFiltro);
+      }
+      
       const [productosRes, categoriasRes] = await Promise.all([
-        api.get('/api/productos?activo=true'), // Solo productos activos
+        api.get(`/api/productos?${params.toString()}`),
         api.get('/api/categorias'),
       ]);
+      
       setProductos(productosRes.data.productos);
+      setTotalProductos(productosRes.data.total);
       setCategorias(categoriasRes.data.categorias);
     } catch (err) {
       setError(err.response?.data?.error || 'Error al cargar datos');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0); // Resetear a la primera página
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setPage(0); // Resetear a la primera página al buscar
+  };
+
+  const handleCategoriaChange = (e) => {
+    setCategoriaFiltro(e.target.value);
+    setPage(0); // Resetear a la primera página al filtrar
   };
 
   const handleOpenDialog = (producto = null) => {
@@ -159,12 +202,8 @@ const Productos = () => {
     }
   };
 
-  const productosFiltrados = productos.filter((producto) => {
-    const matchSearch = producto.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (producto.codigo_barras && producto.codigo_barras.includes(searchTerm));
-    const matchCategoria = !categoriaFiltro || producto.categoria_id === parseInt(categoriaFiltro);
-    return matchSearch && matchCategoria;
-  });
+  // Ya no necesitamos filtrar en el frontend porque el backend lo hace
+  // Los productos que llegan ya están filtrados
 
   if (loading) {
     return (
@@ -204,7 +243,7 @@ const Productos = () => {
                 fullWidth
                 placeholder="Buscar por nombre o código de barras..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={handleSearchChange}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -220,7 +259,7 @@ const Productos = () => {
                 select
                 label="Filtrar por categoría"
                 value={categoriaFiltro}
-                onChange={(e) => setCategoriaFiltro(e.target.value)}
+                onChange={handleCategoriaChange}
               >
                 <MenuItem value="">Todas las categorías</MenuItem>
                 {categorias.map((cat) => (
@@ -233,7 +272,8 @@ const Productos = () => {
             <Grid item xs={12} md={3}>
               <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
                 <Typography variant="body2" color="text.secondary">
-                  Total: {productosFiltrados.length} productos
+                  Total: {totalProductos} productos
+                  {(searchTerm || categoriaFiltro) && ` (mostrando ${productos.length})`}
                 </Typography>
               </Box>
             </Grid>
@@ -255,27 +295,35 @@ const Productos = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {productosFiltrados.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center">
+                  <CircularProgress />
+                </TableCell>
+              </TableRow>
+            ) : productos.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} align="center">
                   <Box sx={{ py: 3 }}>
                     <InventoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                     <Typography variant="body2" color="text.secondary">
-                      No hay productos registrados
+                      {searchTerm || categoriaFiltro ? 'No se encontraron productos' : 'No hay productos registrados'}
                     </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={() => handleOpenDialog()}
-                      sx={{ mt: 2 }}
-                    >
-                      Agregar primer producto
-                    </Button>
+                    {!searchTerm && !categoriaFiltro && (
+                      <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={() => handleOpenDialog()}
+                        sx={{ mt: 2 }}
+                      >
+                        Agregar primer producto
+                      </Button>
+                    )}
                   </Box>
                 </TableCell>
               </TableRow>
             ) : (
-              productosFiltrados.map((producto) => (
+              productos.map((producto) => (
                 <TableRow key={producto.id} hover>
                   <TableCell>{producto.codigo_barras || '-'}</TableCell>
                   <TableCell>
@@ -338,6 +386,21 @@ const Productos = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      
+      {/* Paginación */}
+      <TablePagination
+        component="div"
+        count={totalProductos}
+        page={page}
+        onPageChange={handleChangePage}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Productos por página:"
+        labelDisplayedRows={({ from, to, count }) => 
+          `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+        }
+      />
 
       {/* Dialog para agregar/editar producto */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>

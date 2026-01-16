@@ -9,7 +9,7 @@ router.use(verificarToken);
 // GET /api/cuentas-por-pagar - Listar todas las cuentas
 router.get('/', verificarRol('Administrador', 'Gerente'), async (req, res) => {
   try {
-    const { estado, proveedor_id, limit = 50, offset = 0 } = req.query;
+    const { estado, proveedor_id, limit = 1000, offset = 0 } = req.query;
     
     let queryText = `
       SELECT 
@@ -31,9 +31,14 @@ router.get('/', verificarRol('Administrador', 'Gerente'), async (req, res) => {
     let paramCount = 1;
 
     if (estado) {
-      queryText += ` AND cpp.estado = $${paramCount}`;
-      params.push(estado);
-      paramCount++;
+      // Manejar estado "vencido" que es calculado
+      if (estado === 'vencido') {
+        queryText += ` AND cpp.fecha_vencimiento < CURRENT_DATE AND cpp.saldo_pendiente > 0`;
+      } else {
+        queryText += ` AND cpp.estado = $${paramCount}`;
+        params.push(estado);
+        paramCount++;
+      }
     }
 
     if (proveedor_id) {
@@ -47,13 +52,38 @@ router.get('/', verificarRol('Administrador', 'Gerente'), async (req, res) => {
 
     const result = await query(queryText, params);
 
-    const countResult = await query(
-      'SELECT COUNT(*) as total FROM cuentas_por_pagar'
-    );
+    // Contar total con los mismos filtros
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM cuentas_por_pagar cpp
+      WHERE 1=1
+    `;
+    const countParams = [];
+    let countParamCount = 1;
+
+    if (estado) {
+      if (estado === 'vencido') {
+        countQuery += ` AND cpp.fecha_vencimiento < CURRENT_DATE AND cpp.saldo_pendiente > 0`;
+      } else {
+        countQuery += ` AND cpp.estado = $${countParamCount}`;
+        countParams.push(estado);
+        countParamCount++;
+      }
+    }
+
+    if (proveedor_id) {
+      countQuery += ` AND cpp.proveedor_id = $${countParamCount}`;
+      countParams.push(proveedor_id);
+      countParamCount++;
+    }
+
+    const countResult = await query(countQuery, countParams);
 
     res.json({
       cuentas: result.rows,
-      total: parseInt(countResult.rows[0].total)
+      total: parseInt(countResult.rows[0].total),
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
   } catch (error) {

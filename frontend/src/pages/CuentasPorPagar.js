@@ -29,6 +29,8 @@ import {
   Divider,
   LinearProgress,
   Autocomplete,
+  TablePagination,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -64,6 +66,11 @@ const CuentasPorPagar = () => {
   const [success, setSuccess] = useState(null);
   const [tabValue, setTabValue] = useState(0);
   
+  // Estados de paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalCuentas, setTotalCuentas] = useState(0);
+  
   // Datos
   const [cuentas, setCuentas] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
@@ -92,18 +99,37 @@ const CuentasPorPagar = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+  }, [page, rowsPerPage, tabValue]); // Recargar cuando cambie
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
+      
+      // Determinar estado según tab
+      let estadoFiltro = '';
+      if (tabValue === 0) estadoFiltro = 'pendiente';   // Tab 0: Pendientes
+      if (tabValue === 1) estadoFiltro = 'parcial';      // Tab 1: Parciales
+      if (tabValue === 2) estadoFiltro = 'vencido';      // Tab 2: Vencidas
+      if (tabValue === 3) estadoFiltro = 'pagado';       // Tab 3: Pagadas
+      // Tab 4: Todas (sin filtro)
+      
+      const params = new URLSearchParams({
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+      });
+      
+      if (estadoFiltro) {
+        params.append('estado', estadoFiltro);
+      }
+      
       const [cuentasRes, estadisticasRes, proveedoresRes] = await Promise.all([
-        api.get('/api/cuentas-por-pagar'),
+        api.get(`/api/cuentas-por-pagar?${params.toString()}`),
         api.get('/api/cuentas-por-pagar/estadisticas'),
         api.get('/api/proveedores'),
       ]);
       
       setCuentas(cuentasRes.data.cuentas);
+      setTotalCuentas(cuentasRes.data.total);
       setEstadisticas(estadisticasRes.data);
       setProveedores(proveedoresRes.data.proveedores);
     } catch (err) {
@@ -112,6 +138,20 @@ const CuentasPorPagar = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleChangeTab = (event, newValue) => {
+    setTabValue(newValue);
+    setPage(0); // Resetear a primera página
   };
 
   const handleCrearCuenta = async () => {
@@ -398,48 +438,59 @@ const CuentasPorPagar = () => {
 
       {/* Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
-          <Tab label="Todas las Cuentas" />
-          <Tab label="Próximos Vencimientos" />
-          <Tab label="Vencidas" />
+        <Tabs value={tabValue} onChange={handleChangeTab}>
+          <Tab label={`Pendientes ${tabValue === 0 ? `(${totalCuentas})` : ''}`} />
+          <Tab label={`Parciales ${tabValue === 1 ? `(${totalCuentas})` : ''}`} />
+          <Tab label={`Vencidas ${tabValue === 2 ? `(${totalCuentas})` : ''}`} />
+          <Tab label={`Pagadas ${tabValue === 3 ? `(${totalCuentas})` : ''}`} />
+          <Tab label={`Todas ${tabValue === 4 ? `(${totalCuentas})` : ''}`} />
         </Tabs>
       </Box>
 
-      {/* Tab 1: Todas las Cuentas */}
-      {tabValue === 0 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Listado de Cuentas por Pagar
-            </Typography>
-            <TableContainer>
-              <Table>
-                <TableHead>
+      {/* Tabla de Cuentas (unificada para todos los tabs) */}
+      <Card>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            {tabValue === 0 ? 'Cuentas Pendientes' :
+             tabValue === 1 ? 'Cuentas con Pago Parcial' :
+             tabValue === 2 ? 'Cuentas Vencidas' :
+             tabValue === 3 ? 'Cuentas Pagadas' :
+             'Todas las Cuentas'}
+          </Typography>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Folio</TableCell>
+                  <TableCell>Proveedor</TableCell>
+                  <TableCell>Fecha Emisión</TableCell>
+                  <TableCell>Vencimiento</TableCell>
+                  <TableCell align="right">Monto Total</TableCell>
+                  <TableCell align="right">Saldo Pendiente</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="center">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loading ? (
                   <TableRow>
-                    <TableCell>Folio</TableCell>
-                    <TableCell>Proveedor</TableCell>
-                    <TableCell>Fecha Emisión</TableCell>
-                    <TableCell>Vencimiento</TableCell>
-                    <TableCell align="right">Monto Total</TableCell>
-                    <TableCell align="right">Saldo Pendiente</TableCell>
-                    <TableCell>Estado</TableCell>
-                    <TableCell align="center">Acciones</TableCell>
+                    <TableCell colSpan={8} align="center">
+                      <CircularProgress />
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {cuentas.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} align="center">
-                        <Box sx={{ py: 3 }}>
-                          <ReceiptIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                          <Typography variant="body2" color="text.secondary">
-                            No hay cuentas por pagar registradas
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    cuentas.map((cuenta) => (
+                ) : cuentas.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      <Box sx={{ py: 3 }}>
+                        <ReceiptIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                        <Typography variant="body2" color="text.secondary">
+                          No hay cuentas en esta categoría
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  cuentas.map((cuenta) => (
                       <TableRow key={cuenta.id} hover>
                         <TableCell>{cuenta.folio}</TableCell>
                         <TableCell>{cuenta.proveedor_nombre}</TableCell>
@@ -498,117 +549,23 @@ const CuentasPorPagar = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            
+            {/* Paginación */}
+            <TablePagination
+              component="div"
+              count={totalCuentas}
+              page={page}
+              onPageChange={handleChangePage}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+              labelRowsPerPage="Cuentas por página:"
+              labelDisplayedRows={({ from, to, count }) => 
+                `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+              }
+            />
           </CardContent>
         </Card>
-      )}
-
-      {/* Tab 2: Próximos Vencimientos */}
-      {tabValue === 1 && estadisticas && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Próximos Vencimientos (15 días)
-            </Typography>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Folio</TableCell>
-                    <TableCell>Proveedor</TableCell>
-                    <TableCell>Vencimiento</TableCell>
-                    <TableCell>Días Restantes</TableCell>
-                    <TableCell align="right">Saldo</TableCell>
-                    <TableCell align="center">Acciones</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {estadisticas.proximos_vencimientos.map((cuenta) => (
-                    <TableRow key={cuenta.id}>
-                      <TableCell>{cuenta.folio}</TableCell>
-                      <TableCell>{cuenta.proveedor_nombre}</TableCell>
-                      <TableCell>
-                        {format(new Date(cuenta.fecha_vencimiento), 'dd/MM/yyyy')}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={`${cuenta.dias_restantes} días`}
-                          size="small"
-                          color={cuenta.dias_restantes <= 3 ? 'error' : cuenta.dias_restantes <= 7 ? 'warning' : 'info'}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        Q{parseFloat(cuenta.saldo_pendiente).toFixed(2)}
-                      </TableCell>
-                      <TableCell align="center">
-                        <IconButton
-                          size="small"
-                          color="success"
-                          onClick={() => handleAbrirPago(cuenta)}
-                        >
-                          <PaymentIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tab 3: Vencidas */}
-      {tabValue === 2 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Cuentas Vencidas
-            </Typography>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Folio</TableCell>
-                    <TableCell>Proveedor</TableCell>
-                    <TableCell>Vencimiento</TableCell>
-                    <TableCell align="right">Saldo</TableCell>
-                    <TableCell align="center">Acciones</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {cuentas
-                    .filter(c => c.estado === 'vencido' || c.estado_actual === 'vencido')
-                    .map((cuenta) => (
-                      <TableRow key={cuenta.id} sx={{ bgcolor: 'error.lighter' }}>
-                        <TableCell>{cuenta.folio}</TableCell>
-                        <TableCell>{cuenta.proveedor_nombre}</TableCell>
-                        <TableCell>
-                          {format(new Date(cuenta.fecha_vencimiento), 'dd/MM/yyyy')}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography fontWeight="bold" color="error">
-                            Q{parseFloat(cuenta.saldo_pendiente).toFixed(2)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="error"
-                            startIcon={<PaymentIcon />}
-                            onClick={() => handleAbrirPago(cuenta)}
-                          >
-                            Pagar Ahora
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Diálogo: Nueva Cuenta */}
       <Dialog open={openNuevaCuenta} onClose={handleCloseNuevaCuenta} maxWidth="sm" fullWidth>

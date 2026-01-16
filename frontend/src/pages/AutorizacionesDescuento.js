@@ -24,6 +24,8 @@ import {
   Grid,
   Tabs,
   Tab,
+  TablePagination,
+  CircularProgress,
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
@@ -41,6 +43,11 @@ const AutorizacionesDescuento = () => {
   const [autorizaciones, setAutorizaciones] = useState([]);
   const [tabActual, setTabActual] = useState(0); // 0=Pendientes, 1=Historial
   
+  // Estados de paginación (solo para historial)
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalAutorizaciones, setTotalAutorizaciones] = useState(0);
+  
   const [openDialog, setOpenDialog] = useState(false);
   const [autorizacionSeleccionada, setAutorizacionSeleccionada] = useState(null);
   const [aprobar, setAprobar] = useState(true);
@@ -49,7 +56,7 @@ const AutorizacionesDescuento = () => {
   useEffect(() => {
     cargarAutorizaciones();
     
-    // Auto-refresh cada 5 segundos si hay pendientes
+    // Auto-refresh cada 5 segundos solo si hay pendientes
     const interval = setInterval(() => {
       if (tabActual === 0) {
         cargarAutorizaciones();
@@ -57,23 +64,48 @@ const AutorizacionesDescuento = () => {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [tabActual]);
+  }, [tabActual, page, rowsPerPage]); // Agregar dependencias de paginación
 
   const cargarAutorizaciones = async () => {
     try {
       setLoading(true);
       const estado = tabActual === 0 ? 'pendiente' : undefined;
-      const response = await api.get('/api/descuentos/autorizaciones', {
-        params: { estado }
-      });
+      
+      const params = {};
+      if (estado) {
+        params.estado = estado;
+      }
+      
+      // Solo aplicar paginación en historial (tab 1)
+      if (tabActual === 1) {
+        params.limit = rowsPerPage;
+        params.offset = page * rowsPerPage;
+      }
+      
+      const response = await api.get('/api/descuentos/autorizaciones', { params });
       
       setAutorizaciones(response.data.autorizaciones);
+      setTotalAutorizaciones(response.data.total || response.data.autorizaciones.length);
     } catch (err) {
       setError('Error al cargar autorizaciones');
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleChangeTab = (event, newValue) => {
+    setTabActual(newValue);
+    setPage(0); // Resetear paginación al cambiar tab
   };
 
   const handleAbrirDialog = (autorizacion, aprobarDescuento) => {
@@ -99,9 +131,7 @@ const AutorizacionesDescuento = () => {
     }
   };
 
-  const autorizacionesFiltradas = autorizaciones.filter(a => 
-    tabActual === 0 ? a.estado === 'pendiente' : a.estado !== 'pendiente'
-  );
+  // Ya no filtramos en el frontend, el backend lo hace
 
   return (
     <Box>
@@ -136,13 +166,17 @@ const AutorizacionesDescuento = () => {
       )}
 
       <Card>
-        <Tabs value={tabActual} onChange={(e, v) => setTabActual(v)}>
-          <Tab label="Pendientes" />
-          <Tab label="Historial" />
+        <Tabs value={tabActual} onChange={handleChangeTab}>
+          <Tab label={`Pendientes ${tabActual === 0 ? `(${autorizaciones.length})` : ''}`} />
+          <Tab label={`Historial ${tabActual === 1 ? `(${totalAutorizaciones})` : ''}`} />
         </Tabs>
 
         <CardContent>
-          {autorizacionesFiltradas.length === 0 ? (
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
+              <CircularProgress />
+            </Box>
+          ) : autorizaciones.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 5 }}>
               <InfoIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
               <Typography variant="h6" color="text.secondary">
@@ -153,22 +187,23 @@ const AutorizacionesDescuento = () => {
               </Typography>
             </Box>
           ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Fecha Solicitud</TableCell>
-                    <TableCell>Solicitado Por</TableCell>
-                    <TableCell>Monto</TableCell>
-                    <TableCell>Porcentaje</TableCell>
-                    <TableCell>Motivo</TableCell>
-                    <TableCell>Estado</TableCell>
-                    {tabActual === 0 && <TableCell align="center">Acciones</TableCell>}
-                    {tabActual === 1 && <TableCell>Autorizado Por</TableCell>}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {autorizacionesFiltradas.map((autorizacion) => (
+            <>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Fecha Solicitud</TableCell>
+                      <TableCell>Solicitado Por</TableCell>
+                      <TableCell>Monto</TableCell>
+                      <TableCell>Porcentaje</TableCell>
+                      <TableCell>Motivo</TableCell>
+                      <TableCell>Estado</TableCell>
+                      {tabActual === 0 && <TableCell align="center">Acciones</TableCell>}
+                      {tabActual === 1 && <TableCell>Autorizado Por</TableCell>}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {autorizaciones.map((autorizacion) => (
                     <TableRow key={autorizacion.id}>
                       <TableCell>
                         {format(new Date(autorizacion.fecha_solicitud), 'dd/MM/yyyy HH:mm')}
@@ -242,6 +277,24 @@ const AutorizacionesDescuento = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            
+            {/* Paginación solo para historial */}
+            {tabActual === 1 && (
+              <TablePagination
+                component="div"
+                count={totalAutorizaciones}
+                page={page}
+                onPageChange={handleChangePage}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={handleChangeRowsPerPage}
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                labelRowsPerPage="Autorizaciones por página:"
+                labelDisplayedRows={({ from, to, count }) => 
+                  `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+                }
+              />
+            )}
+            </>
           )}
         </CardContent>
       </Card>

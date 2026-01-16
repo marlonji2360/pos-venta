@@ -13,7 +13,7 @@ router.use(verificarToken);
 // GET /api/descuentos/volumen - Listar todos los descuentos por volumen
 router.get('/volumen', verificarRol('Administrador', 'Gerente'), async (req, res) => {
   try {
-    const { producto_id, activo } = req.query;
+    const { producto_id, activo, limit = 1000, offset = 0 } = req.query;
     
     let queryText = `
       SELECT 
@@ -40,12 +40,40 @@ router.get('/volumen', verificarRol('Administrador', 'Gerente'), async (req, res
       paramCount++;
     }
 
-    queryText += ` ORDER BY p.nombre, dv.cantidad_minima`;
+    queryText += ` ORDER BY p.nombre, dv.cantidad_minima LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+    params.push(limit, offset);
 
     const result = await query(queryText, params);
 
+    // Contar total con los mismos filtros
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM descuentos_volumen dv
+      JOIN productos p ON dv.producto_id = p.id
+      WHERE 1=1
+    `;
+    const countParams = [];
+    let countParamCount = 1;
+
+    if (producto_id) {
+      countQuery += ` AND dv.producto_id = $${countParamCount}`;
+      countParams.push(producto_id);
+      countParamCount++;
+    }
+
+    if (activo !== undefined) {
+      countQuery += ` AND dv.activo = $${countParamCount}`;
+      countParams.push(activo === 'true');
+      countParamCount++;
+    }
+
+    const countResult = await query(countQuery, countParams);
+
     res.json({
-      descuentos: result.rows
+      descuentos: result.rows,
+      total: parseInt(countResult.rows[0].total),
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
   } catch (error) {
@@ -256,11 +284,10 @@ router.post('/calcular', async (req, res) => {
 // AUTORIZACIONES DE DESCUENTO
 // ============================================
 
-// GET /api/descuentos/autorizaciones - Listar autorizaciones pendientes
 // GET /api/descuentos/autorizaciones - Listar autorizaciones
 router.get('/autorizaciones', async (req, res) => {
   try {
-    const { estado } = req.query;
+    const { estado, limit = 1000, offset = 0 } = req.query;
     
     let queryText = `
       SELECT 
@@ -288,12 +315,39 @@ router.get('/autorizaciones', async (req, res) => {
       paramCount++;
     }
 
-    queryText += ` ORDER BY ad.fecha_solicitud DESC`;
+    queryText += ` ORDER BY ad.fecha_solicitud DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+    params.push(limit, offset);
 
     const result = await query(queryText, params);
 
+    // Contar total con los mismos filtros
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM autorizaciones_descuento ad
+      WHERE 1=1
+    `;
+    const countParams = [];
+    let countParamCount = 1;
+
+    if (req.usuario.rol !== 'Administrador' && req.usuario.rol !== 'Gerente') {
+      countQuery += ` AND ad.solicitado_por = $${countParamCount}`;
+      countParams.push(req.usuario.id);
+      countParamCount++;
+    }
+
+    if (estado) {
+      countQuery += ` AND ad.estado = $${countParamCount}`;
+      countParams.push(estado);
+      countParamCount++;
+    }
+
+    const countResult = await query(countQuery, countParams);
+
     res.json({
-      autorizaciones: result.rows
+      autorizaciones: result.rows,
+      total: parseInt(countResult.rows[0].total),
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
   } catch (error) {

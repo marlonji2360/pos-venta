@@ -9,7 +9,7 @@ router.use(verificarToken);
 // GET /api/pedidos - Listar todos los pedidos
 router.get('/', async (req, res) => {
   try {
-    const { estado, proveedor_id, limit = 100, offset = 0 } = req.query;
+    const { estado, proveedor_id, limit = 1000, offset = 0 } = req.query;
     
     let queryText = `
       SELECT 
@@ -41,9 +41,34 @@ router.get('/', async (req, res) => {
 
     const result = await query(queryText, params);
 
+    // Contar total con los mismos filtros
+    let countQuery = `
+      SELECT COUNT(*) as total 
+      FROM pedidos_proveedores p
+      WHERE 1=1
+    `;
+    const countParams = [];
+    let countParamCount = 1;
+
+    if (estado) {
+      countQuery += ` AND p.estado = $${countParamCount}`;
+      countParams.push(estado);
+      countParamCount++;
+    }
+
+    if (proveedor_id) {
+      countQuery += ` AND p.proveedor_id = $${countParamCount}`;
+      countParams.push(proveedor_id);
+      countParamCount++;
+    }
+
+    const countResult = await query(countQuery, countParams);
+
     res.json({
       pedidos: result.rows,
-      total: result.rows.length
+      total: parseInt(countResult.rows[0].total),
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     });
 
   } catch (error) {

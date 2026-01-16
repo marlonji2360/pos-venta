@@ -24,6 +24,8 @@ import {
   InputAdornment,
   Alert,
   Chip,
+  TablePagination,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -43,6 +45,11 @@ const Clientes = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingCliente, setEditingCliente] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Estados de paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalClientes, setTotalClientes] = useState(0);
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -55,18 +62,45 @@ const Clientes = () => {
 
   useEffect(() => {
     cargarClientes();
-  }, []);
+  }, [page, rowsPerPage, searchTerm]); // Recargar cuando cambien
 
   const cargarClientes = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/api/clientes');
+      
+      // Construir query params
+      const params = new URLSearchParams({
+        activo: 'true',
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+      });
+      
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      
+      const response = await api.get(`/api/clientes?${params.toString()}`);
       setClientes(response.data.clientes);
+      setTotalClientes(response.data.total);
     } catch (err) {
       setError('Error al cargar clientes');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setPage(0); // Resetear a primera página
   };
 
   const handleOpenDialog = (cliente = null) => {
@@ -140,12 +174,7 @@ const Clientes = () => {
     }
   };
 
-  const clientesFiltrados = clientes.filter((cliente) =>
-    cliente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (cliente.telefono && cliente.telefono.includes(searchTerm)) ||
-    (cliente.email && cliente.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (cliente.nit && cliente.nit.includes(searchTerm))
-  );
+  // Ya no filtramos en el frontend, el backend lo hace
 
   return (
     <Box>
@@ -185,7 +214,7 @@ const Clientes = () => {
             fullWidth
             placeholder="Buscar por nombre, teléfono, email o NIT..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={handleSearchChange}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -195,7 +224,8 @@ const Clientes = () => {
             }}
           />
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Total: {clientesFiltrados.length} clientes
+            Total: {totalClientes} clientes
+            {searchTerm && ` (mostrando ${clientes.length})`}
           </Typography>
         </CardContent>
       </Card>
@@ -217,10 +247,10 @@ const Clientes = () => {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={7} align="center">
-                  Cargando...
+                  <CircularProgress />
                 </TableCell>
               </TableRow>
-            ) : clientesFiltrados.length === 0 ? (
+            ) : clientes.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} align="center">
                   <Box sx={{ py: 3 }}>
@@ -242,7 +272,7 @@ const Clientes = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              clientesFiltrados.map((cliente) => (
+              clientes.map((cliente) => (
                 <TableRow key={cliente.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -307,6 +337,21 @@ const Clientes = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Paginación */}
+      <TablePagination
+        component="div"
+        count={totalClientes}
+        page={page}
+        onPageChange={handleChangePage}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Clientes por página:"
+        labelDisplayedRows={({ from, to, count }) => 
+          `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+        }
+      />
 
       {/* Dialog para agregar/editar cliente */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>

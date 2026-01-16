@@ -28,6 +28,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Tabs,
+  Tab,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,12 +42,13 @@ import {
   Refresh as RefreshIcon,
   Visibility,
   VisibilityOff,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 
 const Usuarios = () => {
   const [usuarios, setUsuarios] = useState([]);
-  const [roles, setRoles] = useState([]);  // ← Cargar dinámicamente
+  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -53,6 +57,11 @@ const Usuarios = () => {
   const [editingUsuario, setEditingUsuario] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [tabActual, setTabActual] = useState(0); // 0=Todos, 1=Activos, 2=Inactivos, 3=Por rol
+  
+  // Paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -243,51 +252,111 @@ const Usuarios = () => {
     };
   };
 
-  const usuariosFiltrados = usuarios.filter((usuario) =>
-    usuario.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (usuario.email && usuario.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (usuario.telefono && usuario.telefono.includes(searchTerm))
+  // Filtrar usuarios según tab y búsqueda
+  const usuariosFiltrados = usuarios.filter((usuario) => {
+    // Filtro por tab
+    let pasaFiltroTab = true;
+    if (tabActual === 1) pasaFiltroTab = usuario.activo === true;
+    if (tabActual === 2) pasaFiltroTab = usuario.activo === false;
+    // Tab 3+ sería por rol específico (roles.length + 3)
+    if (tabActual >= 3) {
+      const rolIndex = tabActual - 3;
+      if (roles[rolIndex]) {
+        pasaFiltroTab = usuario.rol_id === roles[rolIndex].id;
+      }
+    }
+
+    // Filtro por búsqueda
+    let pasaFiltroBusqueda = true;
+    if (searchTerm.trim()) {
+      const termino = searchTerm.toLowerCase();
+      pasaFiltroBusqueda = 
+        usuario.nombre.toLowerCase().includes(termino) ||
+        (usuario.email && usuario.email.toLowerCase().includes(termino)) ||
+        (usuario.telefono && usuario.telefono.includes(termino));
+    }
+
+    return pasaFiltroTab && pasaFiltroBusqueda;
+  });
+
+  // Paginación
+  const usuariosPaginados = usuariosFiltrados.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
   );
 
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleChangeTab = (event, newValue) => {
+    setTabActual(newValue);
+    setPage(0); // Reset a primera página al cambiar tab
+  };
+
+  // Contar usuarios
+  const contarUsuarios = (filtro) => {
+    if (filtro === 'todos') return usuarios.length;
+    if (filtro === 'activos') return usuarios.filter(u => u.activo).length;
+    if (filtro === 'inactivos') return usuarios.filter(u => !u.activo).length;
+    // Si es un rol específico
+    if (typeof filtro === 'number') {
+      return usuarios.filter(u => u.rol_id === filtro).length;
+    }
+    return 0;
+  };
+
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" gutterBottom>
-            Usuarios
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Gestión de usuarios del sistema
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
-          Nuevo Usuario
-        </Button>
-      </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
-          {success}
-        </Alert>
-      )}
-
+    <Box sx={{ p: 3 }}>
       <Card sx={{ mb: 3 }}>
         <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h5">Gestión de Usuarios</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={cargarUsuarios}
+              >
+                Actualizar
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<AddIcon />}
+                onClick={() => handleOpenDialog()}
+              >
+                Nuevo Usuario
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Mensajes */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+          {success && (
+            <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+              {success}
+            </Alert>
+          )}
+
+          {/* Barra de búsqueda */}
           <TextField
             fullWidth
             placeholder="Buscar por nombre, email o teléfono..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(0);
+            }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -295,125 +364,171 @@ const Usuarios = () => {
                 </InputAdornment>
               ),
             }}
+            sx={{ mb: 2 }}
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Total: {usuariosFiltrados.length} usuarios
-          </Typography>
-        </CardContent>
-      </Card>
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow sx={{ bgcolor: 'primary.light' }}>
-              <TableCell>Nombre</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Teléfono</TableCell>
-              <TableCell align="center">Rol</TableCell>
-              <TableCell align="center">Estado</TableCell>
-              <TableCell>Último Acceso</TableCell>
-              <TableCell align="center">Acciones</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center">
-                  Cargando...
-                </TableCell>
-              </TableRow>
-            ) : usuariosFiltrados.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center">
-                  <Box sx={{ py: 3 }}>
-                    <PersonIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                    <Typography variant="body2" color="text.secondary">
-                      {searchTerm ? 'No se encontraron usuarios' : 'No hay usuarios registrados'}
-                    </Typography>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            ) : (
-              usuariosFiltrados.map((usuario) => {
-                const rolInfo = getRolInfo(usuario.rol_id);
-                return (
-                  <TableRow key={usuario.id} hover>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <PersonIcon color="primary" />
-                        <Typography variant="body2" fontWeight="medium">
-                          {usuario.nombre}
+          {/* Tabs */}
+          <Tabs 
+            value={tabActual} 
+            onChange={handleChangeTab} 
+            sx={{ mb: 2 }}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            <Tab 
+              label={`Todos (${contarUsuarios('todos')})`} 
+              icon={<PeopleIcon />} 
+              iconPosition="start"
+            />
+            <Tab 
+              label={`Activos (${contarUsuarios('activos')})`}
+              icon={<Chip label="A" size="small" color="success" />}
+              iconPosition="start"
+            />
+            <Tab 
+              label={`Inactivos (${contarUsuarios('inactivos')})`}
+              icon={<Chip label="I" size="small" color="default" />}
+              iconPosition="start"
+            />
+            {/* Tabs por rol */}
+            {roles.map((rol) => (
+              <Tab 
+                key={rol.id}
+                label={`${rol.nombre} (${contarUsuarios(rol.id)})`}
+                icon={<Chip label={rol.nombre.charAt(0)} size="small" color={getColorPorDefecto(rol.nombre)} />}
+                iconPosition="start"
+              />
+            ))}
+          </Tabs>
+
+          {/* Tabla */}
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Teléfono</TableCell>
+                  <TableCell align="center">Rol</TableCell>
+                  <TableCell align="center">Estado</TableCell>
+                  <TableCell>Último Acceso</TableCell>
+                  <TableCell align="center">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center">
+                      Cargando...
+                    </TableCell>
+                  </TableRow>
+                ) : usuariosPaginados.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center">
+                      <Box sx={{ py: 3 }}>
+                        <PersonIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                        <Typography variant="body2" color="text.secondary">
+                          {searchTerm ? 'No se encontraron usuarios' : 'No hay usuarios registrados'}
                         </Typography>
                       </Box>
                     </TableCell>
-                    <TableCell>{usuario.email}</TableCell>
-                    <TableCell>{usuario.telefono || '-'}</TableCell>
-                    <TableCell align="center">
-                      <Chip
-                        label={rolInfo.nombre}
-                        size="small"
-                        color={rolInfo.color}
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip
-                        label={usuario.activo ? 'Activo' : 'Inactivo'}
-                        size="small"
-                        color={usuario.activo ? 'success' : 'default'}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {usuario.ultimo_acceso 
-                        ? format(new Date(usuario.ultimo_acceso), 'dd/MM/yyyy HH:mm')
-                        : 'Nunca'
-                      }
-                    </TableCell>
-                    <TableCell align="center">
-                      {usuario.activo ? (
-                        <>
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => handleOpenDialog(usuario)}
-                            title="Editar"
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            color="secondary"
-                            onClick={() => handleOpenPasswordDialog(usuario)}
-                            title="Cambiar contraseña"
-                          >
-                            <LockIcon />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDelete(usuario.id)}
-                            title="Desactivar"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </>
-                      ) : (
-                        <IconButton
-                          size="small"
-                          color="success"
-                          onClick={() => handleReactivar(usuario.id)}
-                          title="Reactivar"
-                        >
-                          <RefreshIcon />
-                        </IconButton>
-                      )}
-                    </TableCell>
                   </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                ) : (
+                  usuariosPaginados.map((usuario) => {
+                    const rolInfo = getRolInfo(usuario.rol_id);
+                    return (
+                      <TableRow key={usuario.id} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <PersonIcon color="primary" />
+                            <Typography variant="body2" fontWeight="medium">
+                              {usuario.nombre}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell>{usuario.email}</TableCell>
+                        <TableCell>{usuario.telefono || '-'}</TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={rolInfo.nombre}
+                            size="small"
+                            color={rolInfo.color}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={usuario.activo ? 'Activo' : 'Inactivo'}
+                            size="small"
+                            color={usuario.activo ? 'success' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {usuario.ultimo_acceso 
+                            ? format(new Date(usuario.ultimo_acceso), 'dd/MM/yyyy HH:mm')
+                            : 'Nunca'
+                          }
+                        </TableCell>
+                        <TableCell align="center">
+                          {usuario.activo ? (
+                            <>
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleOpenDialog(usuario)}
+                                title="Editar"
+                              >
+                                <EditIcon />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="secondary"
+                                onClick={() => handleOpenPasswordDialog(usuario)}
+                                title="Cambiar contraseña"
+                              >
+                                <LockIcon />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDelete(usuario.id)}
+                                title="Desactivar"
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </>
+                          ) : (
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => handleReactivar(usuario.id)}
+                              title="Reactivar"
+                            >
+                              <RefreshIcon />
+                            </IconButton>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Paginación */}
+          <TablePagination
+            component="div"
+            count={usuariosFiltrados.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            labelRowsPerPage="Filas por página:"
+            labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+            rowsPerPageOptions={[5, 10, 25, 50, 100]}
+          />
+        </CardContent>
+      </Card>
 
       {/* Dialog para agregar/editar usuario */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>

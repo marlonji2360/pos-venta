@@ -24,6 +24,8 @@ import {
   InputAdornment,
   Alert,
   Chip,
+  TablePagination,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -44,6 +46,11 @@ const Proveedores = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Estados de paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalProveedores, setTotalProveedores] = useState(0);
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -57,18 +64,44 @@ const Proveedores = () => {
 
   useEffect(() => {
     cargarProveedores();
-  }, []);
+  }, [page, rowsPerPage, searchTerm]);
 
   const cargarProveedores = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/api/proveedores');
+      
+      const params = new URLSearchParams({
+        activo: 'true',
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+      });
+      
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      
+      const response = await api.get(`/api/proveedores?${params.toString()}`);
       setProveedores(response.data.proveedores);
+      setTotalProveedores(response.data.total);
     } catch (err) {
       setError('Error al cargar proveedores');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setPage(0);
   };
 
   const handleOpenDialog = (proveedor = null) => {
@@ -144,13 +177,7 @@ const Proveedores = () => {
     }
   };
 
-  const proveedoresFiltrados = proveedores.filter((proveedor) =>
-    proveedor.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (proveedor.contacto && proveedor.contacto.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (proveedor.telefono && proveedor.telefono.includes(searchTerm)) ||
-    (proveedor.email && proveedor.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (proveedor.nit && proveedor.nit.includes(searchTerm))
-  );
+  // Filtrado en el backend
 
   return (
     <Box>
@@ -190,7 +217,7 @@ const Proveedores = () => {
             fullWidth
             placeholder="Buscar por nombre, contacto, teléfono, email o NIT..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={handleSearchChange}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -200,7 +227,8 @@ const Proveedores = () => {
             }}
           />
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Total: {proveedoresFiltrados.length} proveedores
+            Total: {totalProveedores} proveedores
+            {searchTerm && ` (mostrando ${proveedores.length})`}
           </Typography>
         </CardContent>
       </Card>
@@ -222,10 +250,10 @@ const Proveedores = () => {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={7} align="center">
-                  Cargando...
+                  <CircularProgress />
                 </TableCell>
               </TableRow>
-            ) : proveedoresFiltrados.length === 0 ? (
+            ) : proveedores.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} align="center">
                   <Box sx={{ py: 3 }}>
@@ -247,7 +275,7 @@ const Proveedores = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              proveedoresFiltrados.map((proveedor) => (
+              proveedores.map((proveedor) => (
                 <TableRow key={proveedor.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -317,6 +345,21 @@ const Proveedores = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Paginación */}
+      <TablePagination
+        component="div"
+        count={totalProveedores}
+        page={page}
+        onPageChange={handleChangePage}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Proveedores por página:"
+        labelDisplayedRows={({ from, to, count }) => 
+          `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+        }
+      />
 
       {/* Dialog para agregar/editar proveedor */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>

@@ -9,7 +9,7 @@ router.use(verificarToken);
 // GET /api/proveedores - Listar todos los proveedores
 router.get('/', async (req, res) => {
   try {
-    const { activo, search, limit = 100, offset = 0 } = req.query;
+    const { activo, search, limit = 1000, offset = 0 } = req.query;
     
     let queryText = 'SELECT * FROM proveedores WHERE 1=1';
     const params = [];
@@ -32,9 +32,24 @@ router.get('/', async (req, res) => {
 
     const result = await query(queryText, params);
 
-    const countResult = await query(
-      'SELECT COUNT(*) as total FROM proveedores WHERE activo = true'
-    );
+    // Contar total con los mismos filtros
+    let countQuery = 'SELECT COUNT(*) as total FROM proveedores WHERE 1=1';
+    const countParams = [];
+    let countParamCount = 1;
+
+    if (activo !== undefined) {
+      countQuery += ` AND activo = $${countParamCount}`;
+      countParams.push(activo === 'true');
+      countParamCount++;
+    }
+
+    if (search) {
+      countQuery += ` AND (nombre ILIKE $${countParamCount} OR contacto ILIKE $${countParamCount} OR telefono ILIKE $${countParamCount} OR email ILIKE $${countParamCount} OR nit ILIKE $${countParamCount})`;
+      countParams.push(`%${search}%`);
+      countParamCount++;
+    }
+
+    const countResult = await query(countQuery, countParams);
 
     res.json({
       proveedores: result.rows,

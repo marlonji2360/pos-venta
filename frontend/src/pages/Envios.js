@@ -7,13 +7,13 @@ import {
   IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Stepper, Step, StepLabel, Tabs, Tab, Avatar,
   Select, MenuItem, FormControl, InputLabel, Paper,
-  InputAdornment,
+  InputAdornment, TablePagination, CircularProgress,
 } from '@mui/material';
 import {
   LocalShipping as ShippingIcon, CheckCircle as CheckIcon,
   Cancel as CancelIcon, Refresh as RefreshIcon, Info as InfoIcon,
   Phone as PhoneIcon, Place as PlaceIcon, AccessTime as TimeIcon,
-  Person as PersonIcon, Receipt as ReceiptIcon,
+  Person as PersonIcon, Receipt as ReceiptIcon, Search as SearchIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 
@@ -27,6 +27,14 @@ const Envios = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [tabActual, setTabActual] = useState(0);
   const [filtroEstado, setFiltroEstado] = useState('todos');
+  
+  // Paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalEnvios, setTotalEnvios] = useState(0);
+  
+  // Búsqueda
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Estados para confirmar entrega
   const [openDialogEntrega, setOpenDialogEntrega] = useState(false);
@@ -46,25 +54,48 @@ const Envios = () => {
     // Auto-refresh cada 30 segundos
     const interval = setInterval(cargarEnvios, 30000);
     return () => clearInterval(interval);
-  }, [filtroEstado]);
+  }, [filtroEstado, page, rowsPerPage, searchTerm]);
 
   const cargarEnvios = async () => {
     try {
       setLoading(true);
-      const params = {};
+      const params = {
+        page: page + 1,
+        limit: rowsPerPage
+      };
       
       if (filtroEstado !== 'todos') {
         params.estado = filtroEstado;
       }
       
+      if (searchTerm.trim()) {
+        params.buscar = searchTerm.trim();
+      }
+      
       const response = await api.get('/api/envios', { params });
-      setEnvios(response.data.envios);
+      setEnvios(response.data.envios || []);
+      setTotalEnvios(response.data.total || 0);
     } catch (err) {
       setError('Error al cargar envíos');
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Paginación
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setPage(0);
   };
 
   const handleVerDetalle = async (envioId) => {
@@ -100,21 +131,14 @@ const Envios = () => {
     setOpenDialogEntrega(true);
   };
 
-  const confirmarEntrega = async () => {
+  const handleConfirmarEntrega = async () => {
     try {
-      if (!datosEntrega.firma_cliente.trim()) {
-        setError('Ingresa el nombre de quien recibe');
-        return;
-      }
-
       await api.put(`/api/envios/${envioParaEntregar}/entregar`, datosEntrega);
-      
-      setSuccess('¡Envío marcado como entregado!');
+      setSuccess('Entrega registrada exitosamente');
       setOpenDialogEntrega(false);
       cargarEnvios();
-      setOpenDialog(false);
     } catch (err) {
-      setError('Error al marcar como entregado');
+      setError('Error al registrar entrega');
     }
   };
 
@@ -122,9 +146,9 @@ const Envios = () => {
     const colores = {
       pendiente: 'default',
       asignado: 'info',
-      preparando: 'warning',
+      preparando: 'info',
       cargado: 'primary',
-      en_ruta: 'secondary',
+      en_ruta: 'warning',
       entregado: 'success',
       cancelado: 'error',
       fallido: 'error'
@@ -146,97 +170,25 @@ const Envios = () => {
     return textos[estado] || estado;
   };
 
-  const getStepActual = (estado) => {
-    const steps = {
-      pendiente: 0,
-      asignado: 0,
-      preparando: 1,
-      cargado: 2,
-      en_ruta: 3,
-      entregado: 4
-    };
-    return steps[estado] || 0;
+  const filtrarPorTab = (envio) => {
+    if (tabActual === 0) return true; // Todos
+    if (tabActual === 1) return ['pendiente', 'asignado'].includes(envio.estado);
+    if (tabActual === 2) return ['preparando', 'cargado', 'en_ruta'].includes(envio.estado);
+    if (tabActual === 3) return envio.estado === 'entregado';
+    return true;
   };
 
-  const getBotonesAccion = (envio) => {
-    // Admin y Gerente pueden cambiar cualquier estado
-    // Piloto solo puede cambiar sus propios envíos
-    if (!esPiloto && !esGerente) return null;
-    
-    if (esPiloto && envio.piloto_id !== usuario.id) {
-      return null; // Piloto solo ve sus envíos
-    }
-
-    const botones = {
-      asignado: (
-        <Button
-          size="small"
-          variant="contained"
-          color="warning"
-          onClick={() => handleCambiarEstado(envio.id, 'preparando')}
-        >
-          Preparar Pedido
-        </Button>
-      ),
-      preparando: (
-        <Button
-          size="small"
-          variant="contained"
-          color="primary"
-          onClick={() => handleCambiarEstado(envio.id, 'cargado')}
-        >
-          Marcar Cargado
-        </Button>
-      ),
-      cargado: (
-        <Button
-          size="small"
-          variant="contained"
-          color="secondary"
-          onClick={() => handleCambiarEstado(envio.id, 'en_ruta')}
-        >
-          Iniciar Ruta
-        </Button>
-      ),
-      en_ruta: (
-        <Button
-          size="small"
-          variant="contained"
-          color="success"
-          startIcon={<CheckIcon />}
-          onClick={() => handleMarcarEntregado(envio.id)}
-        >
-          Entregar
-        </Button>
-      )
-    };
-
-    return botones[envio.estado] || null;
-  };
-
-  // Filtrar envíos por tab
-  const enviosFiltrados = envios.filter(envio => {
-    if (tabActual === 0) {
-      // Activos
-      return ['asignado', 'preparando', 'cargado', 'en_ruta'].includes(envio.estado);
-    } else if (tabActual === 1) {
-      // Completados
-      return envio.estado === 'entregado';
-    } else {
-      // Todos
-      return true;
-    }
-  });
+  const enviosFiltrados = envios.filter(filtrarPorTab);
 
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
           <Typography variant="h4" gutterBottom>
-            🚚 {esPiloto ? 'Mis Envíos' : 'Gestión de Envíos'}
+            🚚 Envíos
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {esPiloto ? 'Gestiona tus entregas asignadas' : 'Monitorea todos los envíos en tiempo real'}
+            Gestión de entregas y seguimiento
           </Typography>
         </Box>
         <Button
@@ -248,34 +200,45 @@ const Envios = () => {
         </Button>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
-          {success}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
 
       <Card>
         <Tabs value={tabActual} onChange={(e, v) => setTabActual(v)}>
-          <Tab label={`Activos (${envios.filter(e => ['asignado', 'preparando', 'cargado', 'en_ruta'].includes(e.estado)).length})`} />
-          <Tab label={`Completados (${envios.filter(e => e.estado === 'entregado').length})`} />
-          <Tab label="Todos" />
+          <Tab label="📋 Todos" />
+          <Tab label="⏳ Pendientes" />
+          <Tab label="🚀 En Proceso" />
+          <Tab label="✅ Entregados" />
         </Tabs>
 
         <CardContent>
-          {esGerente && (
-            <Box sx={{ mb: 2 }}>
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Filtrar por Estado</InputLabel>
+          {/* Filtros */}
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                placeholder="Buscar por folio, cliente, teléfono, dirección..."
+                value={searchTerm}
+                onChange={handleSearchChange}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Estado</InputLabel>
                 <Select
                   value={filtroEstado}
-                  label="Filtrar por Estado"
-                  onChange={(e) => setFiltroEstado(e.target.value)}
+                  label="Estado"
+                  onChange={(e) => {
+                    setFiltroEstado(e.target.value);
+                    setPage(0);
+                  }}
                 >
                   <MenuItem value="todos">Todos</MenuItem>
                   <MenuItem value="pendiente">Pendiente</MenuItem>
@@ -284,60 +247,74 @@ const Envios = () => {
                   <MenuItem value="cargado">Cargado</MenuItem>
                   <MenuItem value="en_ruta">En Ruta</MenuItem>
                   <MenuItem value="entregado">Entregado</MenuItem>
+                  <MenuItem value="cancelado">Cancelado</MenuItem>
+                  <MenuItem value="fallido">Fallido</MenuItem>
                 </Select>
               </FormControl>
-            </Box>
-          )}
-
-          {enviosFiltrados.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 5 }}>
-              <ShippingIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h6" color="text.secondary">
-                No hay envíos para mostrar
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                {totalEnvios} envío{totalEnvios !== 1 ? 's' : ''} encontrado{totalEnvios !== 1 ? 's' : ''}
               </Typography>
-            </Box>
-          ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
+            </Grid>
+          </Grid>
+
+          {/* Tabla de Envíos */}
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Folio</TableCell>
+                  <TableCell>Cliente</TableCell>
+                  <TableCell>Dirección</TableCell>
+                  <TableCell>Piloto</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell>Fecha Pedido</TableCell>
+                  <TableCell align="right">Total</TableCell>
+                  <TableCell align="center">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loading ? (
                   <TableRow>
-                    <TableCell>Folio Venta</TableCell>
-                    <TableCell>Cliente</TableCell>
-                    <TableCell>Dirección</TableCell>
-                    {esGerente && <TableCell>Piloto</TableCell>}
-                    <TableCell>Estado</TableCell>
-                    <TableCell>Fecha</TableCell>
-                    <TableCell align="center">Acciones</TableCell>
+                    <TableCell colSpan={8} align="center">
+                      <CircularProgress size={30} sx={{ my: 2 }} />
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {enviosFiltrados.map((envio) => (
+                ) : enviosFiltrados.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
+                        No hay envíos para mostrar
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  enviosFiltrados.map((envio) => (
                     <TableRow key={envio.id} hover>
                       <TableCell>
-                        <Chip label={envio.venta_folio} size="small" />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight="bold">
-                          {envio.cliente_nombre || 'Cliente general'}
+                        <Typography variant="body2" fontWeight="medium">
+                          {envio.venta_folio}
                         </Typography>
-                        {envio.telefono_contacto && (
-                          <Typography variant="caption" color="text.secondary">
-                            📞 {envio.telefono_contacto}
-                          </Typography>
-                        )}
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                        <Box>
+                          <Typography variant="body2">{envio.cliente_nombre || 'Sin nombre'}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {envio.cliente_telefono}
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {envio.direccion_entrega}
                         </Typography>
                       </TableCell>
-                      {esGerente && (
-                        <TableCell>
-                          {envio.piloto_nombre || (
-                            <Chip label="Sin asignar" size="small" color="warning" />
-                          )}
-                        </TableCell>
-                      )}
+                      <TableCell>
+                        <Typography variant="body2">
+                          {envio.piloto_nombre || 'Sin asignar'}
+                        </Typography>
+                      </TableCell>
                       <TableCell>
                         <Chip
                           label={getTextoEstado(envio.estado)}
@@ -346,247 +323,232 @@ const Envios = () => {
                         />
                       </TableCell>
                       <TableCell>
-                        <Typography variant="caption">
+                        <Typography variant="body2">
                           {format(new Date(envio.fecha_pedido), 'dd/MM/yyyy HH:mm')}
                         </Typography>
                       </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight="medium">
+                          Q{parseFloat(envio.venta_total).toFixed(2)}
+                        </Typography>
+                      </TableCell>
                       <TableCell align="center">
-                        <Button
+                        <IconButton
                           size="small"
+                          color="primary"
                           onClick={() => handleVerDetalle(envio.id)}
                         >
-                          Ver Detalle
-                        </Button>
+                          <InfoIcon />
+                        </IconButton>
+                        {esPiloto && envio.estado === 'en_ruta' && (
+                          <IconButton
+                            size="small"
+                            color="success"
+                            onClick={() => handleMarcarEntregado(envio.id)}
+                          >
+                            <CheckIcon />
+                          </IconButton>
+                        )}
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Paginación */}
+          {!loading && (
+            <TablePagination
+              component="div"
+              count={totalEnvios}
+              page={page}
+              onPageChange={handleChangePage}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+              labelRowsPerPage="Envíos por página:"
+              labelDisplayedRows={({ from, to, count }) => 
+                `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+              }
+            />
           )}
         </CardContent>
       </Card>
 
-      {/* Diálogo: Detalle del Envío */}
-      <Dialog 
-        open={openDialog} 
-        onClose={() => setOpenDialog(false)}
-        maxWidth="md"
-        fullWidth
-      >
+      {/* DIÁLOGO: DETALLE DEL ENVÍO */}
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
         {envioSeleccionado && (
           <>
-            <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6">
-                  📦 Envío - {envioSeleccionado.envio.venta_folio}
-                </Typography>
-                <Chip
-                  label={getTextoEstado(envioSeleccionado.envio.estado)}
-                  color={getColorEstado(envioSeleccionado.envio.estado)}
-                />
-              </Box>
+            <DialogTitle>
+              Detalle del Envío - {envioSeleccionado.envio.venta_folio}
             </DialogTitle>
-            <DialogContent sx={{ mt: 2 }}>
-              <Grid container spacing={3}>
-                {/* Progreso del envío */}
+            <DialogContent>
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                {/* Información del Cliente */}
                 <Grid item xs={12}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>
-                      Estado del Envío
-                    </Typography>
-                    <Stepper activeStep={getStepActual(envioSeleccionado.envio.estado)} alternativeLabel>
-                      <Step>
-                        <StepLabel>Preparando</StepLabel>
-                      </Step>
-                      <Step>
-                        <StepLabel>Cargado</StepLabel>
-                      </Step>
-                      <Step>
-                        <StepLabel>En Ruta</StepLabel>
-                      </Step>
-                      <Step>
-                        <StepLabel>Entregado</StepLabel>
-                      </Step>
-                    </Stepper>
-                  </Paper>
-                </Grid>
-
-                {/* Información del cliente */}
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>
-                      <PersonIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Cliente
-                    </Typography>
-                    <Typography variant="body1">
-                      <strong>{envioSeleccionado.envio.cliente_nombre || 'Cliente general'}</strong>
-                    </Typography>
-                    {envioSeleccionado.envio.telefono_contacto && (
-                      <Typography variant="body2" color="text.secondary">
-                        📞 {envioSeleccionado.envio.telefono_contacto}
-                      </Typography>
-                    )}
-                    {envioSeleccionado.envio.nombre_contacto && (
-                      <Typography variant="body2" color="text.secondary">
-                        Contacto: {envioSeleccionado.envio.nombre_contacto}
-                      </Typography>
-                    )}
-                  </Paper>
-                </Grid>
-
-                {/* Dirección */}
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>
-                      <PlaceIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Dirección
-                    </Typography>
+                  <Typography variant="h6" gutterBottom>
+                    👤 Cliente
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Nombre:</strong> {envioSeleccionado.envio.cliente_nombre}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Teléfono:</strong> {envioSeleccionado.envio.cliente_telefono}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Dirección:</strong> {envioSeleccionado.envio.direccion_entrega}
+                  </Typography>
+                  {envioSeleccionado.envio.referencia_direccion && (
                     <Typography variant="body2">
-                      {envioSeleccionado.envio.direccion_entrega}
+                      <strong>Referencia:</strong> {envioSeleccionado.envio.referencia_direccion}
                     </Typography>
-                    {envioSeleccionado.envio.referencia_direccion && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                        Ref: {envioSeleccionado.envio.referencia_direccion}
-                      </Typography>
-                    )}
-                  </Paper>
+                  )}
+                </Grid>
+
+                {/* Información del Piloto */}
+                <Grid item xs={12}>
+                  <Typography variant="h6" gutterBottom>
+                    🚗 Piloto
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Nombre:</strong> {envioSeleccionado.envio.piloto_nombre || 'Sin asignar'}
+                  </Typography>
+                  {envioSeleccionado.envio.piloto_telefono && (
+                    <Typography variant="body2">
+                      <strong>Teléfono:</strong> {envioSeleccionado.envio.piloto_telefono}
+                    </Typography>
+                  )}
+                </Grid>
+
+                {/* Estado Actual */}
+                <Grid item xs={12}>
+                  <Typography variant="h6" gutterBottom>
+                    📊 Estado
+                  </Typography>
+                  <Chip
+                    label={getTextoEstado(envioSeleccionado.envio.estado)}
+                    color={getColorEstado(envioSeleccionado.envio.estado)}
+                    sx={{ mb: 2 }}
+                  />
                 </Grid>
 
                 {/* Productos */}
                 <Grid item xs={12}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>
-                      <ReceiptIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Productos
-                    </Typography>
-                    <TableContainer>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Producto</TableCell>
-                            <TableCell align="center">Cantidad</TableCell>
-                            <TableCell align="right">Precio</TableCell>
-                            <TableCell align="right">Subtotal</TableCell>
+                  <Typography variant="h6" gutterBottom>
+                    📦 Productos
+                  </Typography>
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Producto</TableCell>
+                          <TableCell align="right">Cantidad</TableCell>
+                          <TableCell align="right">Precio</TableCell>
+                          <TableCell align="right">Total</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {envioSeleccionado.productos.map((prod) => (
+                          <TableRow key={prod.id}>
+                            <TableCell>{prod.producto_nombre}</TableCell>
+                            <TableCell align="right">{prod.cantidad}</TableCell>
+                            <TableCell align="right">Q{parseFloat(prod.precio_unitario).toFixed(2)}</TableCell>
+                            <TableCell align="right">Q{parseFloat(prod.subtotal).toFixed(2)}</TableCell>
                           </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {envioSeleccionado.productos.map((producto, index) => (
-                            <TableRow key={index}>
-                              <TableCell>{producto.producto_nombre}</TableCell>
-                              <TableCell align="center">{producto.cantidad}</TableCell>
-                              <TableCell align="right">Q{parseFloat(producto.precio_unitario).toFixed(2)}</TableCell>
-                              <TableCell align="right">Q{parseFloat(producto.subtotal).toFixed(2)}</TableCell>
-                            </TableRow>
-                          ))}
-                          <TableRow>
-                            <TableCell colSpan={3} align="right"><strong>Total:</strong></TableCell>
-                            <TableCell align="right">
-                              <strong>Q{parseFloat(envioSeleccionado.envio.venta_total).toFixed(2)}</strong>
-                            </TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Paper>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 </Grid>
 
-                {/* Notas */}
-                {envioSeleccionado.envio.notas_cliente && (
+                {/* Acciones rápidas para piloto */}
+                {esPiloto && envioSeleccionado.envio.estado !== 'entregado' && (
                   <Grid item xs={12}>
-                    <Alert severity="info">
-                      <Typography variant="body2">
-                        <strong>Notas:</strong> {envioSeleccionado.envio.notas_cliente}
-                      </Typography>
-                    </Alert>
+                    <Typography variant="h6" gutterBottom>
+                      ⚡ Acciones Rápidas
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {envioSeleccionado.envio.estado === 'asignado' && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'preparando')}
+                        >
+                          Iniciar Preparación
+                        </Button>
+                      )}
+                      {envioSeleccionado.envio.estado === 'preparando' && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'cargado')}
+                        >
+                          Marcar Cargado
+                        </Button>
+                      )}
+                      {envioSeleccionado.envio.estado === 'cargado' && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="warning"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'en_ruta')}
+                        >
+                          Salir a Ruta
+                        </Button>
+                      )}
+                      {envioSeleccionado.envio.estado === 'en_ruta' && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          onClick={() => handleMarcarEntregado(envioSeleccionado.envio.id)}
+                        >
+                          Marcar Entregado
+                        </Button>
+                      )}
+                    </Box>
                   </Grid>
                 )}
               </Grid>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setOpenDialog(false)}>
-                Cerrar
-              </Button>
-              {getBotonesAccion(envioSeleccionado.envio)}
+              <Button onClick={() => setOpenDialog(false)}>Cerrar</Button>
             </DialogActions>
           </>
         )}
       </Dialog>
 
-      {/* Diálogo: Confirmar Entrega */}
-      <Dialog 
-        open={openDialogEntrega} 
-        onClose={() => setOpenDialogEntrega(false)}
-        maxWidth="sm"
-        fullWidth
-      >
+      {/* DIÁLOGO: CONFIRMAR ENTREGA */}
+      <Dialog open={openDialogEntrega} onClose={() => setOpenDialogEntrega(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: 'success.main', color: 'white' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CheckIcon />
-            <Typography variant="h6">
-              Confirmar Entrega
-            </Typography>
-          </Box>
+          ✅ Confirmar Entrega
         </DialogTitle>
-        <DialogContent sx={{ mt: 3 }}>
-          <Alert severity="info" sx={{ mb: 3 }}>
-            <Typography variant="body2">
-              Confirma que el pedido ha sido entregado exitosamente al cliente.
-            </Typography>
-          </Alert>
-
+        <DialogContent sx={{ mt: 2 }}>
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Nombre de quien recibe *"
+                label="Nombre del que recibe (opcional)"
                 value={datosEntrega.firma_cliente}
-                onChange={(e) => setDatosEntrega({ 
-                  ...datosEntrega, 
-                  firma_cliente: e.target.value 
-                })}
-                placeholder="Ej: Juan Pérez"
-                required
-                autoFocus
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonIcon />
-                    </InputAdornment>
-                  ),
-                }}
+                onChange={(e) => setDatosEntrega({ ...datosEntrega, firma_cliente: e.target.value })}
               />
             </Grid>
-
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Notas de entrega (opcional)"
-                value={datosEntrega.notas_piloto}
-                onChange={(e) => setDatosEntrega({ 
-                  ...datosEntrega, 
-                  notas_piloto: e.target.value 
-                })}
-                placeholder="Ej: Entregado en recepción"
                 multiline
-                rows={2}
+                rows={3}
+                label="Notas del piloto (opcional)"
+                value={datosEntrega.notas_piloto}
+                onChange={(e) => setDatosEntrega({ ...datosEntrega, notas_piloto: e.target.value })}
               />
             </Grid>
           </Grid>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button 
-            onClick={() => setOpenDialogEntrega(false)}
-            color="inherit"
-          >
-            Cancelar
-          </Button>
-          <Button 
-            onClick={confirmarEntrega}
-            variant="contained"
-            color="success"
-            startIcon={<CheckIcon />}
-          >
+        <DialogActions>
+          <Button onClick={() => setOpenDialogEntrega(false)}>Cancelar</Button>
+          <Button onClick={handleConfirmarEntrega} variant="contained" color="success">
             Confirmar Entrega
           </Button>
         </DialogActions>

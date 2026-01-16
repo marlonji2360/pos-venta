@@ -26,6 +26,8 @@ import {
   MenuItem,
   Tabs,
   Tab,
+  TablePagination,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -52,6 +54,11 @@ const Pedidos = () => {
   const [openDetalle, setOpenDetalle] = useState(false);
   const [pedidoDetalle, setPedidoDetalle] = useState(null);
   const [tabValue, setTabValue] = useState(0);
+  
+  // Estados de paginación
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalPedidos, setTotalPedidos] = useState(0);
 
   // Estado para nuevo pedido
   const [proveedorSeleccionado, setProveedorSeleccionado] = useState(null);
@@ -72,17 +79,36 @@ const Pedidos = () => {
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+  }, [page, rowsPerPage, tabValue]); // Recargar cuando cambie paginación o tab
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
+      
+      // Determinar estado según tab
+      let estadoFiltro = '';
+      if (tabValue === 0) estadoFiltro = 'pendiente';   // Tab 0: Pendientes
+      if (tabValue === 1) estadoFiltro = 'recibido';     // Tab 1: Recibidos
+      if (tabValue === 2) estadoFiltro = 'cancelado';    // Tab 2: Cancelados
+      // Tab 3: Todos (sin filtro)
+      
+      const params = new URLSearchParams({
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+      });
+      
+      if (estadoFiltro) {
+        params.append('estado', estadoFiltro);
+      }
+      
       const [pedidosRes, proveedoresRes, productosRes] = await Promise.all([
-        api.get('/api/pedidos'),
+        api.get(`/api/pedidos?${params.toString()}`),
         api.get('/api/proveedores'),
-        api.get('/api/productos?activo=true'),
+        api.get('/api/productos?activo=true&limit=1000'),
       ]);
+      
       setPedidos(pedidosRes.data.pedidos);
+      setTotalPedidos(pedidosRes.data.total);
       setProveedores(proveedoresRes.data.proveedores);
       setProductos(productosRes.data.productos);
     } catch (err) {
@@ -90,6 +116,20 @@ const Pedidos = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleChangeTab = (event, newValue) => {
+    setTabValue(newValue);
+    setPage(0); // Resetear a primera página al cambiar tab
   };
 
   const handleOpenDialog = () => {
@@ -324,9 +364,7 @@ const Pedidos = () => {
     }
   };
 
-  const pedidosPorEstado = (estado) => {
-    return pedidos.filter((p) => p.estado === estado);
-  };
+  // Ya no necesitamos filtrar en el frontend, el backend lo hace según el tab
 
   return (
     <Box>
@@ -361,10 +399,11 @@ const Pedidos = () => {
       )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          <Tab label={`Pendientes (${pedidosPorEstado('pendiente').length})`} />
-          <Tab label={`Recibidos (${pedidosPorEstado('recibido').length})`} />
-          <Tab label={`Todos (${pedidos.length})`} />
+        <Tabs value={tabValue} onChange={handleChangeTab}>
+          <Tab label={`Pendientes ${tabValue === 0 ? `(${totalPedidos})` : ''}`} />
+          <Tab label={`Recibidos ${tabValue === 1 ? `(${totalPedidos})` : ''}`} />
+          <Tab label={`Cancelados ${tabValue === 2 ? `(${totalPedidos})` : ''}`} />
+          <Tab label={`Todos ${tabValue === 3 ? `(${totalPedidos})` : ''}`} />
         </Tabs>
       </Box>
 
@@ -384,13 +423,22 @@ const Pedidos = () => {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={6} align="center">
-                  Cargando...
+                  <CircularProgress />
+                </TableCell>
+              </TableRow>
+            ) : pedidos.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} align="center">
+                  <Box sx={{ py: 3 }}>
+                    <ShoppingCartIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      No hay pedidos
+                    </Typography>
+                  </Box>
                 </TableCell>
               </TableRow>
             ) : (
-              (tabValue === 0 ? pedidosPorEstado('pendiente') :
-               tabValue === 1 ? pedidosPorEstado('recibido') :
-               pedidos).map((pedido) => (
+              pedidos.map((pedido) => (
                 <TableRow key={pedido.id} hover>
                   <TableCell>
                     <Typography variant="body2" fontWeight="medium">
@@ -429,6 +477,21 @@ const Pedidos = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Paginación */}
+      <TablePagination
+        component="div"
+        count={totalPedidos}
+        page={page}
+        onPageChange={handleChangePage}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Pedidos por página:"
+        labelDisplayedRows={({ from, to, count }) => 
+          `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+        }
+      />
 
       {/* Dialog para crear pedido */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
