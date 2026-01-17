@@ -6,6 +6,20 @@ const { verificarToken, verificarRol } = require('../middleware/auth');
 
 router.use(verificarToken);
 
+// Función helper para obtener piloto disponible
+async function obtenerPilotoDisponible(client) {
+  const result = await client.query(`
+    SELECT u.id
+    FROM usuarios u
+    JOIN roles r ON u.rol_id = r.id
+    WHERE r.nombre = 'Piloto' AND u.activo = true
+    ORDER BY RANDOM()
+    LIMIT 1
+  `);
+  
+  return result.rows.length > 0 ? result.rows[0].id : null;
+}
+
 // POST /api/ventas - Crear nueva venta
 router.post('/', verificarRol('Administrador', 'Gerente', 'Vendedor'), async (req, res) => {
   const client = await require('../config/database').pool.connect();
@@ -18,13 +32,21 @@ router.post('/', verificarRol('Administrador', 'Gerente', 'Vendedor'), async (re
       iva,
       total,
       productos,
-      es_envio  // ← AGREGAR
+      es_envio,
+      envio  // ← Datos del envío
     } = req.body;
 
     // Validar datos requeridos
     if (!metodo_pago || !total || !productos || productos.length === 0) {
       return res.status(400).json({ 
         error: 'Datos incompletos. Se requiere método de pago, total y productos' 
+      });
+    }
+
+    // Validar datos de envío si es_envio es true
+    if (es_envio && (!envio || !envio.direccion_entrega)) {
+      return res.status(400).json({ 
+        error: 'Datos de envío incompletos. Se requiere dirección de entrega' 
       });
     }
 
@@ -151,6 +173,39 @@ router.post('/', verificarRol('Administrador', 'Gerente', 'Vendedor'), async (re
       }
     }
 
+    // Si es envío a domicilio, crear registro de envío
+    let envioCreado = null;
+    if (es_envio && envio) {
+      const envioResult = await client.query(
+        `INSERT INTO envios (
+          venta_id,
+          direccion_entrega,
+          referencia_direccion,
+          telefono_contacto,
+          nombre_contacto,
+          fecha_pedido,
+          costo_envio,
+          notas_cliente,
+          estado,
+          piloto_id
+        ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9)
+        RETURNING *`,
+        [
+          venta.id,
+          envio.direccion_entrega,
+          envio.referencia_direccion || null,
+          envio.telefono_contacto || null,
+          envio.nombre_contacto || null,
+          envio.costo_envio || 0,
+          envio.notas_cliente || null,
+          'pendiente',
+          envio.asignar_piloto_auto ? await obtenerPilotoDisponible(client) : null
+        ]
+      );
+      
+      envioCreado = envioResult.rows[0];
+    }
+
     await client.query('COMMIT');
 
     res.status(201).json({
@@ -161,8 +216,10 @@ router.post('/', verificarRol('Administrador', 'Gerente', 'Vendedor'), async (re
         id: venta.id,
         folio: venta.folio,
         total: venta.total,
-        fecha: venta.fecha_venta
+        fecha: venta.fecha_venta,
+        es_envio: es_envio || false
       },
+      envio: envioCreado,
       advertencias: advertencias.length > 0 ? advertencias : undefined,
       stock_negativo: advertencias.length > 0
     });

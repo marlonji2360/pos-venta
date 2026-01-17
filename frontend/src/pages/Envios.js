@@ -14,6 +14,7 @@ import {
   Cancel as CancelIcon, Refresh as RefreshIcon, Info as InfoIcon,
   Phone as PhoneIcon, Place as PlaceIcon, AccessTime as TimeIcon,
   Person as PersonIcon, Receipt as ReceiptIcon, Search as SearchIcon,
+  Print as PrintIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 
@@ -44,17 +45,33 @@ const Envios = () => {
     notas_piloto: ''
   });
   
+  const [configuracion, setConfiguracion] = useState(null);
+  
   const usuario = JSON.parse(localStorage.getItem('usuario'));
   const esPiloto = usuario?.rol === 'Piloto';
   const esGerente = usuario?.rol === 'Administrador' || usuario?.rol === 'Gerente';
 
   useEffect(() => {
     cargarEnvios();
+    cargarConfiguracion();
     
     // Auto-refresh cada 30 segundos
     const interval = setInterval(cargarEnvios, 30000);
     return () => clearInterval(interval);
   }, [filtroEstado, page, rowsPerPage, searchTerm]);
+
+  const cargarConfiguracion = async () => {
+    try {
+      const response = await api.get('/api/configuracion');
+      const config = {};
+      Object.keys(response.data.configuracion).forEach(key => {
+        config[key] = response.data.configuracion[key].valor;
+      });
+      setConfiguracion(config);
+    } catch (err) {
+      console.error('Error al cargar configuración:', err);
+    }
+  };
 
   const cargarEnvios = async () => {
     try {
@@ -98,6 +115,171 @@ const Envios = () => {
     setPage(0);
   };
 
+  const handleImprimirNotaEnvio = async (envioId) => {
+    if (!configuracion) {
+      setError('Configuración no cargada');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Obtener detalles completos del envío y productos
+      const response = await api.get(`/api/envios/${envioId}`);
+      const envio = response.data.envio;
+      const productos = response.data.productos || [];
+      
+      if (!envio) {
+        setError('No se pudo cargar el envío');
+        return;
+      }
+
+      const contenidoHTML = generarNotaEnvioHTML(envio, productos);
+      
+      const ventanaImpresion = window.open('', '', 'width=800,height=600');
+      ventanaImpresion.document.write(contenidoHTML);
+      ventanaImpresion.document.close();
+      ventanaImpresion.focus();
+      
+      setTimeout(() => {
+        ventanaImpresion.print();
+        ventanaImpresion.close();
+      }, 250);
+
+      setSuccess('Nota de envío enviada a impresora');
+    } catch (err) {
+      setError('Error al imprimir nota de envío: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generarNotaEnvioHTML = (envio, productos) => {
+    const moneda = configuracion.moneda || 'Q';
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Courier New', monospace; padding: 10px; background: white; }
+          .nota { width: 300px; margin: 0 auto; }
+          .header { text-align: center; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+          .titulo { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
+          .empresa { font-size: 14px; margin-bottom: 3px; }
+          .info { font-size: 11px; margin: 2px 0; }
+          .section { margin: 10px 0; font-size: 11px; }
+          .section-title { font-weight: bold; font-size: 12px; margin-bottom: 5px; }
+          .section-line { margin: 3px 0; }
+          .divider { border-top: 1px dashed #000; margin: 10px 0; }
+          .divider-solid { border-top: 2px solid #000; margin: 10px 0; }
+          .productos { margin: 15px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 10px; }
+          th { text-align: left; padding: 3px 0; border-bottom: 1px solid #000; }
+          td { padding: 5px 0; border-bottom: 1px dashed #ccc; }
+          .totales { margin: 15px 0; font-size: 11px; }
+          .total-line { display: flex; justify-content: space-between; margin: 5px 0; }
+          .total-final { font-size: 13px; font-weight: bold; border-top: 2px solid #000; padding-top: 8px; margin-top: 8px; }
+          .firma { text-align: center; margin-top: 15px; font-size: 10px; }
+          @media print { 
+            body { padding: 0; }
+            @page { size: 80mm auto; margin: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="nota">
+          <div class="header">
+            <div class="titulo">NOTA DE ENVÍO</div>
+            <div class="empresa">${configuracion.nombre_negocio || 'TU EMPRESA'}</div>
+            <div class="info">Tel: ${configuracion.telefono || ''}</div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">📦 INFORMACIÓN DEL PEDIDO</div>
+            <div class="section-line">Folio: ${envio.venta_folio}</div>
+            <div class="section-line">Fecha: ${format(new Date(envio.fecha_pedido), 'dd/MM/yyyy HH:mm')}</div>
+            <div class="section-line">Vendedor: ${envio.vendedor_nombre || 'N/A'}</div>
+            <div class="section-line">Piloto: ${envio.piloto_nombre || 'Sin asignar'}</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="section">
+            <div class="section-title">👤 DATOS DEL CLIENTE</div>
+            <div class="section-line"><strong>Nombre:</strong> ${envio.nombre_contacto || envio.cliente_nombre || 'N/A'}</div>
+            <div class="section-line"><strong>Teléfono:</strong> ${envio.telefono_contacto || envio.cliente_telefono || 'N/A'}</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="section">
+            <div class="section-title">📍 DIRECCIÓN DE ENTREGA</div>
+            <div class="section-line">${envio.direccion_entrega || 'N/A'}</div>
+            ${envio.referencia_direccion ? `<div class="section-line" style="margin-top: 5px; font-style: italic;"><strong>Referencia:</strong> ${envio.referencia_direccion}</div>` : ''}
+          </div>
+
+          ${envio.notas_cliente ? `
+            <div class="divider"></div>
+            <div class="section">
+              <div class="section-title">📝 INDICACIONES ADICIONALES</div>
+              <div class="section-line">${envio.notas_cliente}</div>
+            </div>
+          ` : ''}
+
+          <div class="divider"></div>
+
+          <div class="productos">
+            <div class="section-title">📦 PRODUCTOS A ENTREGAR</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th style="text-align: center;">Cant</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${productos.map(p => `
+                  <tr>
+                    <td>${p.producto_nombre}</td>
+                    <td style="text-align: center;"><strong>${p.cantidad}</strong></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="divider-solid"></div>
+
+          <div class="totales">
+            <div class="total-line">
+              <span>Total del pedido:</span>
+              <span><strong>${moneda}${parseFloat(envio.venta_total || 0).toFixed(2)}</strong></span>
+            </div>
+            <div class="total-line">
+              <span>Costo de envío:</span>
+              <span><strong>${moneda}${parseFloat(envio.costo_envio || 0).toFixed(2)}</strong></span>
+            </div>
+            <div class="total-line total-final">
+              <span>TOTAL A COBRAR:</span>
+              <span>${moneda}${(parseFloat(envio.venta_total || 0) + parseFloat(envio.costo_envio || 0)).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="firma">
+            <div style="margin-bottom: 5px;">✓ Firma del cliente: _________________</div>
+            <div style="margin-top: 10px; font-style: italic;">Gracias por preferir ${configuracion.nombre_negocio || 'nuestro servicio'}</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
   const handleVerDetalle = async (envioId) => {
     try {
       const response = await api.get(`/api/envios/${envioId}`);
@@ -114,11 +296,17 @@ const Envios = () => {
         estado: nuevoEstado
       });
       
-      setSuccess(`Estado cambiado a: ${nuevoEstado}`);
+      setSuccess(`Estado cambiado a: ${getTextoEstado(nuevoEstado)}`);
       cargarEnvios();
-      setOpenDialog(false);
+      
+      // Recargar detalle si está abierto
+      if (openDialog) {
+        const response = await api.get(`/api/envios/${envioId}`);
+        setEnvioSeleccionado(response.data);
+      }
     } catch (err) {
       setError('Error al cambiar estado');
+      console.error(err);
     }
   };
 
@@ -136,9 +324,11 @@ const Envios = () => {
       await api.put(`/api/envios/${envioParaEntregar}/entregar`, datosEntrega);
       setSuccess('Entrega registrada exitosamente');
       setOpenDialogEntrega(false);
+      setOpenDialog(false);
       cargarEnvios();
     } catch (err) {
       setError('Error al registrar entrega');
+      console.error(err);
     }
   };
 
@@ -172,10 +362,24 @@ const Envios = () => {
 
   const filtrarPorTab = (envio) => {
     if (tabActual === 0) return true; // Todos
-    if (tabActual === 1) return ['pendiente', 'asignado'].includes(envio.estado);
-    if (tabActual === 2) return ['preparando', 'cargado', 'en_ruta'].includes(envio.estado);
-    if (tabActual === 3) return envio.estado === 'entregado';
+    if (tabActual === 1) return envio.estado === 'pendiente'; // Pendientes
+    if (tabActual === 2) return envio.estado === 'asignado'; // Asignados
+    if (tabActual === 3) return ['preparando', 'cargado'].includes(envio.estado); // En Preparación
+    if (tabActual === 4) return envio.estado === 'en_ruta'; // En Ruta
+    if (tabActual === 5) return envio.estado === 'entregado'; // Entregados
+    if (tabActual === 6) return ['cancelado', 'fallido'].includes(envio.estado); // Cancelados/Fallidos
     return true;
+  };
+
+  const contarEnviosPorEstado = (filtro) => {
+    if (filtro === 'todos') return totalEnvios;
+    if (filtro === 'pendiente') return envios.filter(e => e.estado === 'pendiente').length;
+    if (filtro === 'asignado') return envios.filter(e => e.estado === 'asignado').length;
+    if (filtro === 'preparacion') return envios.filter(e => ['preparando', 'cargado'].includes(e.estado)).length;
+    if (filtro === 'en_ruta') return envios.filter(e => e.estado === 'en_ruta').length;
+    if (filtro === 'entregado') return envios.filter(e => e.estado === 'entregado').length;
+    if (filtro === 'cancelado') return envios.filter(e => ['cancelado', 'fallido'].includes(e.estado)).length;
+    return 0;
   };
 
   const enviosFiltrados = envios.filter(filtrarPorTab);
@@ -204,11 +408,14 @@ const Envios = () => {
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
 
       <Card>
-        <Tabs value={tabActual} onChange={(e, v) => setTabActual(v)}>
-          <Tab label="📋 Todos" />
-          <Tab label="⏳ Pendientes" />
-          <Tab label="🚀 En Proceso" />
-          <Tab label="✅ Entregados" />
+        <Tabs value={tabActual} onChange={(e, v) => setTabActual(v)} variant="scrollable" scrollButtons="auto">
+          <Tab label={`📋 Todos (${contarEnviosPorEstado('todos')})`} />
+          <Tab label={`⏳ Pendientes (${contarEnviosPorEstado('pendiente')})`} />
+          <Tab label={`👤 Asignados (${contarEnviosPorEstado('asignado')})`} />
+          <Tab label={`📦 En Preparación (${contarEnviosPorEstado('preparacion')})`} />
+          <Tab label={`🚚 En Ruta (${contarEnviosPorEstado('en_ruta')})`} />
+          <Tab label={`✅ Entregados (${contarEnviosPorEstado('entregado')})`} />
+          <Tab label={`❌ Cancelados (${contarEnviosPorEstado('cancelado')})`} />
         </Tabs>
 
         <CardContent>
@@ -337,14 +544,24 @@ const Envios = () => {
                           size="small"
                           color="primary"
                           onClick={() => handleVerDetalle(envio.id)}
+                          title="Ver detalle"
                         >
                           <InfoIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="secondary"
+                          onClick={() => handleImprimirNotaEnvio(envio.id)}
+                          title="Imprimir nota de envío"
+                        >
+                          <PrintIcon />
                         </IconButton>
                         {esPiloto && envio.estado === 'en_ruta' && (
                           <IconButton
                             size="small"
                             color="success"
                             onClick={() => handleMarcarEntregado(envio.id)}
+                            title="Marcar como entregado"
                           >
                             <CheckIcon />
                           </IconButton>
@@ -507,6 +724,72 @@ const Envios = () => {
                           Marcar Entregado
                         </Button>
                       )}
+                    </Box>
+                  </Grid>
+                )}
+
+                {/* Acciones de gestión para administradores/gerentes */}
+                {esGerente && envioSeleccionado.envio.estado !== 'entregado' && (
+                  <Grid item xs={12}>
+                    <Typography variant="h6" gutterBottom>
+                      🎛️ Gestión de Estado
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {envioSeleccionado.envio.estado === 'pendiente' && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'asignado')}
+                        >
+                          Marcar como Asignado
+                        </Button>
+                      )}
+                      {['pendiente', 'asignado'].includes(envioSeleccionado.envio.estado) && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'preparando')}
+                        >
+                          Iniciar Preparación
+                        </Button>
+                      )}
+                      {['pendiente', 'asignado', 'preparando'].includes(envioSeleccionado.envio.estado) && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'cargado')}
+                        >
+                          Marcar Cargado
+                        </Button>
+                      )}
+                      {['pendiente', 'asignado', 'preparando', 'cargado'].includes(envioSeleccionado.envio.estado) && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="warning"
+                          onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'en_ruta')}
+                        >
+                          Enviar a Ruta
+                        </Button>
+                      )}
+                      {envioSeleccionado.envio.estado === 'en_ruta' && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          onClick={() => handleMarcarEntregado(envioSeleccionado.envio.id)}
+                        >
+                          Marcar Entregado
+                        </Button>
+                      )}
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => handleCambiarEstado(envioSeleccionado.envio.id, 'cancelado')}
+                      >
+                        Cancelar Envío
+                      </Button>
                     </Box>
                   </Grid>
                 )}

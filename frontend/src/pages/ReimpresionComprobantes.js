@@ -14,6 +14,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Paper,
   Grid,
   Alert,
   Dialog,
@@ -49,6 +50,7 @@ const ReimpresionComprobantes = () => {
   const [openCancelar, setOpenCancelar] = useState(false);
   const [ventaACancelar, setVentaACancelar] = useState(null);
   const [tabActual, setTabActual] = useState(0);
+  const [configuracion, setConfiguracion] = useState(null);
   
   // Paginación
   const [page, setPage] = useState(0);
@@ -56,12 +58,24 @@ const ReimpresionComprobantes = () => {
   
   // Filtros
   const [busqueda, setBusqueda] = useState('');
-  const [fechaInicio, setFechaInicio] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [fechaFin, setFechaFin] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   useEffect(() => {
     cargarVentas();
+    cargarConfiguracion();
   }, []);
+
+  const cargarConfiguracion = async () => {
+    try {
+      const response = await api.get('/api/configuracion');
+      const config = {};
+      Object.keys(response.data.configuracion).forEach(key => {
+        config[key] = response.data.configuracion[key].valor;
+      });
+      setConfiguracion(config);
+    } catch (err) {
+      console.error('Error al cargar configuración:', err);
+    }
+  };
 
   const cargarVentas = async () => {
     try {
@@ -133,6 +147,11 @@ const ReimpresionComprobantes = () => {
   };
 
   const handleImprimirDirecto = async (venta) => {
+    if (!configuracion) {
+      setError('Configuración no cargada');
+      return;
+    }
+
     try {
       setLoading(true);
       
@@ -151,7 +170,7 @@ const ReimpresionComprobantes = () => {
       };
       
       const ventanaImpresion = window.open('', '', 'width=800,height=600');
-      const contenidoHTML = generarComprobante(ventaCompleta);
+      const contenidoHTML = generarComprobanteParametrizado(ventaCompleta, configuracion);
       
       ventanaImpresion.document.write(contenidoHTML);
       ventanaImpresion.document.close();
@@ -171,6 +190,11 @@ const ReimpresionComprobantes = () => {
   };
 
   const handleDescargarPDF = async (venta) => {
+    if (!configuracion) {
+      setError('Configuración no cargada');
+      return;
+    }
+
     try {
       setLoading(true);
       
@@ -194,7 +218,7 @@ const ReimpresionComprobantes = () => {
       const tempDiv = document.createElement('div');
       tempDiv.style.position = 'absolute';
       tempDiv.style.left = '-9999px';
-      tempDiv.innerHTML = generarComprobante(ventaCompleta);
+      tempDiv.innerHTML = generarComprobanteParametrizado(ventaCompleta, configuracion);
       document.body.appendChild(tempDiv);
       
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -215,7 +239,7 @@ const ReimpresionComprobantes = () => {
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       
       pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-      pdf.save(`Comprobante_${ventaCompleta.folio}.pdf`);
+      pdf.save(`${ventaCompleta.folio}.pdf`);
       
       document.body.removeChild(tempDiv);
       
@@ -234,8 +258,9 @@ const ReimpresionComprobantes = () => {
     }
   };
 
-  const generarComprobante = (venta) => {
+  const generarComprobanteParametrizado = (venta, config) => {
     const productos = venta.productos || [];
+    const moneda = config.moneda || 'Q';
     
     return `
       <!DOCTYPE html>
@@ -247,62 +272,93 @@ const ReimpresionComprobantes = () => {
           body { font-family: 'Courier New', monospace; padding: 10px; background: white; }
           .ticket { width: 300px; margin: 0 auto; }
           .header { text-align: center; margin-bottom: 15px; border-bottom: 2px dashed #000; padding-bottom: 10px; }
-          .empresa { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
-          .info { font-size: 11px; }
-          .section { margin: 10px 0; font-size: 12px; }
+          .empresa { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
+          .info { font-size: 11px; margin: 2px 0; }
+          .section { margin: 10px 0; font-size: 11px; }
+          .section-line { margin: 3px 0; }
           .productos { margin: 15px 0; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 10px 0; }
-          .producto-item { margin: 8px 0; font-size: 11px; }
-          .producto-nombre { font-weight: bold; }
-          .producto-detalle { display: flex; justify-content: space-between; margin-top: 2px; }
-          .totales { margin: 15px 0; }
-          .total-line { display: flex; justify-content: space-between; margin: 5px 0; font-size: 12px; }
-          .total-final { font-size: 16px; font-weight: bold; border-top: 2px solid #000; padding-top: 8px; margin-top: 8px; }
+          .productos-header { font-weight: bold; margin-bottom: 8px; font-size: 11px; display: flex; justify-content: space-between; }
+          .producto-item { margin: 8px 0; font-size: 10px; }
+          .producto-nombre { font-weight: bold; margin-bottom: 2px; }
+          .producto-detalle { display: flex; justify-content: space-between; }
+          .totales { margin: 15px 0; font-size: 11px; }
+          .total-line { display: flex; justify-content: space-between; margin: 5px 0; }
+          .total-final { font-size: 13px; font-weight: bold; border-top: 2px solid #000; padding-top: 8px; margin-top: 8px; }
           .footer { text-align: center; margin-top: 20px; font-size: 11px; border-top: 2px dashed #000; padding-top: 10px; }
-          ${venta.estado === 'cancelada' ? '.cancelada { color: #d32f2f; font-weight: bold; text-align: center; font-size: 20px; margin: 10px 0; border: 2px solid #d32f2f; padding: 10px; }' : ''}
-          @media print { body { padding: 0; } }
+          .footer-line { margin: 3px 0; }
+          ${venta.estado === 'cancelada' ? `
+            .cancelada { 
+              color: #d32f2f; 
+              font-weight: bold; 
+              text-align: center; 
+              font-size: 16px; 
+              margin: 10px 0; 
+              border: 2px solid #d32f2f; 
+              padding: 8px; 
+              background: #ffebee;
+            }
+          ` : ''}
+          @media print { 
+            body { padding: 0; }
+            @page { size: 80mm auto; margin: 0; }
+          }
         </style>
       </head>
       <body>
         <div class="ticket">
+          <!-- ENCABEZADO -->
           <div class="header">
-            <div class="empresa">TU EMPRESA</div>
-            <div class="info">NIT: 123456789</div>
-            <div class="info">Tel: 1234-5678</div>
+            <div class="empresa">${config.nombre_negocio || 'TU EMPRESA'}</div>
+            <div class="info">${config.direccion || ''}</div>
+            <div class="info">Tel: ${config.telefono || ''}</div>
+            <div class="info">NIT: ${config.nit || 'CF'}</div>
           </div>
-          ${venta.estado === 'cancelada' ? '<div class="cancelada">VENTA CANCELADA</div>' : ''}
+          
+          ${venta.estado === 'cancelada' ? '<div class="cancelada">⚠️ VENTA CANCELADA ⚠️</div>' : ''}
+          
+          <!-- INFORMACIÓN DE LA VENTA -->
           <div class="section">
-            <div><strong>Folio:</strong> ${venta.folio}</div>
-            <div><strong>Fecha:</strong> ${format(new Date(venta.fecha_venta), 'dd/MM/yyyy HH:mm')}</div>
-            <div><strong>Cliente:</strong> ${venta.cliente_nombre || 'Público General'}</div>
-            <div><strong>Vendedor:</strong> ${venta.usuario_nombre || venta.vendedor_nombre || '-'}</div>
-            <div><strong>Método:</strong> ${venta.metodo_pago}</div>
-            <div><strong>Estado:</strong> ${venta.estado === 'cancelada' ? 'CANCELADA' : 'COMPLETADA'}</div>
+            <div class="section-line"><strong>Folio:</strong> ${venta.folio}</div>
+            <div class="section-line"><strong>Fecha:</strong> ${venta.fecha_venta ? format(new Date(venta.fecha_venta), 'dd/MM/yyyy HH:mm') : format(new Date(), 'dd/MM/yyyy HH:mm')}</div>
+            <div class="section-line"><strong>Vendedor:</strong> ${venta.usuario_nombre || venta.vendedor_nombre || 'N/A'}</div>
+            <div class="section-line"><strong>Cliente:</strong> ${venta.cliente_nombre || 'Público General'}</div>
+            <div class="section-line"><strong>Método:</strong> ${venta.metodo_pago ? venta.metodo_pago.charAt(0).toUpperCase() + venta.metodo_pago.slice(1) : 'N/A'}</div>
+            ${venta.estado === 'cancelada' ? `<div class="section-line"><strong>Estado:</strong> <span style="color: #d32f2f;">CANCELADA</span></div>` : ''}
           </div>
+          
+          <!-- PRODUCTOS -->
           <div class="productos">
-            <div style="font-weight: bold; margin-bottom: 5px;">PRODUCTOS</div>
+            <div class="productos-header">
+              <span>Producto</span>
+              <span>Total</span>
+            </div>
             ${productos.map(p => `
               <div class="producto-item">
                 <div class="producto-nombre">${p.producto_nombre}</div>
                 <div class="producto-detalle">
-                  <span>${p.cantidad} x Q${parseFloat(p.precio_unitario).toFixed(2)}</span>
-                  <span>Q${parseFloat(p.subtotal).toFixed(2)}</span>
+                  <span>${p.cantidad} x ${moneda}${parseFloat(p.precio_unitario).toFixed(2)}</span>
+                  <span>${moneda}${parseFloat(p.subtotal).toFixed(2)}</span>
                 </div>
               </div>
             `).join('')}
           </div>
+          
+          <!-- TOTALES -->
           <div class="totales">
             <div class="total-line">
               <span>Subtotal:</span>
-              <span>Q${parseFloat(venta.subtotal || venta.total).toFixed(2)}</span>
+              <span>${moneda}${parseFloat(venta.subtotal || venta.total).toFixed(2)}</span>
             </div>
             <div class="total-line total-final">
               <span>TOTAL:</span>
-              <span>Q${parseFloat(venta.total).toFixed(2)}</span>
+              <span>${moneda}${parseFloat(venta.total).toFixed(2)}</span>
             </div>
           </div>
+          
+          <!-- PIE DE PÁGINA -->
           <div class="footer">
-            <div>¡Gracias por su compra!</div>
-            <div>www.tuempresa.com</div>
+            <div class="footer-line">${config.ticket_mensaje || '¡Gracias por su compra!'}</div>
+            <div class="footer-line">${config.ticket_pie || 'Vuelva pronto'}</div>
           </div>
         </div>
       </body>
@@ -310,15 +366,17 @@ const ReimpresionComprobantes = () => {
     `;
   };
 
-  // Filtrar ventas
+  // Filtrado de ventas
   const ventasFiltradas = ventas.filter((venta) => {
+    // Filtro por tab
     let pasaFiltroTab = true;
     if (tabActual === 1) pasaFiltroTab = venta.estado === 'completada';
     if (tabActual === 2) pasaFiltroTab = venta.estado === 'cancelada';
-    if (tabActual === 3) pasaFiltroTab = venta.metodo_pago === 'efectivo' && venta.estado !== 'cancelada';
-    if (tabActual === 4) pasaFiltroTab = venta.metodo_pago === 'tarjeta' && venta.estado !== 'cancelada';
-    if (tabActual === 5) pasaFiltroTab = venta.metodo_pago === 'transferencia' && venta.estado !== 'cancelada';
+    if (tabActual === 3) pasaFiltroTab = venta.metodo_pago === 'efectivo' && venta.estado === 'completada';
+    if (tabActual === 4) pasaFiltroTab = venta.metodo_pago === 'tarjeta' && venta.estado === 'completada';
+    if (tabActual === 5) pasaFiltroTab = venta.metodo_pago === 'transferencia' && venta.estado === 'completada';
 
+    // Filtro por búsqueda
     let pasaFiltroBusqueda = true;
     if (busqueda.trim()) {
       const termino = busqueda.toLowerCase();
@@ -328,31 +386,24 @@ const ReimpresionComprobantes = () => {
         venta.vendedor_nombre?.toLowerCase().includes(termino);
     }
 
-    let pasaFiltroFecha = true;
-    if (fechaInicio || fechaFin) {
-      const fechaVenta = new Date(venta.fecha_venta);
-      if (fechaInicio) {
-        const inicio = new Date(fechaInicio);
-        inicio.setHours(0, 0, 0, 0);
-        pasaFiltroFecha = pasaFiltroFecha && fechaVenta >= inicio;
-      }
-      if (fechaFin) {
-        const fin = new Date(fechaFin);
-        fin.setHours(23, 59, 59, 999);
-        pasaFiltroFecha = pasaFiltroFecha && fechaVenta <= fin;
-      }
-    }
-
-    return pasaFiltroTab && pasaFiltroBusqueda && pasaFiltroFecha;
+    return pasaFiltroTab && pasaFiltroBusqueda;
   });
 
-  const ventasPaginadas = ventasFiltradas.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  // Paginación
+  const ventasPaginadas = ventasFiltradas.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
 
-  const handleChangePage = (event, newPage) => setPage(newPage);
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
   };
+
   const handleChangeTab = (event, newValue) => {
     setTabActual(newValue);
     setPage(0);
@@ -362,65 +413,78 @@ const ReimpresionComprobantes = () => {
     if (filtro === 'todas') return ventas.length;
     if (filtro === 'completadas') return ventas.filter(v => v.estado === 'completada').length;
     if (filtro === 'canceladas') return ventas.filter(v => v.estado === 'cancelada').length;
-    if (filtro === 'efectivo') return ventas.filter(v => v.metodo_pago === 'efectivo' && v.estado !== 'cancelada').length;
-    if (filtro === 'tarjeta') return ventas.filter(v => v.metodo_pago === 'tarjeta' && v.estado !== 'cancelada').length;
-    if (filtro === 'transferencia') return ventas.filter(v => v.metodo_pago === 'transferencia' && v.estado !== 'cancelada').length;
+    if (filtro === 'efectivo') return ventas.filter(v => v.metodo_pago === 'efectivo' && v.estado === 'completada').length;
+    if (filtro === 'tarjeta') return ventas.filter(v => v.metodo_pago === 'tarjeta' && v.estado === 'completada').length;
+    if (filtro === 'transferencia') return ventas.filter(v => v.metodo_pago === 'transferencia' && v.estado === 'completada').length;
     return 0;
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            <ReceiptIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Reimpresión de Comprobantes
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Reimprimir o descargar comprobantes de ventas
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={cargarVentas}
+        >
+          Actualizar
+        </Button>
+      </Box>
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom>Reimpresión de Comprobantes</Typography>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Buscar"
-                placeholder="Folio, cliente o vendedor..."
-                value={busqueda}
-                onChange={(e) => { setBusqueda(e.target.value); setPage(0); }}
-                InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField fullWidth type="date" label="Fecha Inicio" value={fechaInicio}
-                onChange={(e) => { setFechaInicio(e.target.value); setPage(0); }}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField fullWidth type="date" label="Fecha Fin" value={fechaFin}
-                onChange={(e) => { setFechaFin(e.target.value); setPage(0); }}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Button variant="outlined" startIcon={<RefreshIcon />} onClick={cargarVentas}>
-                Actualizar Lista
-              </Button>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+          {success}
+        </Alert>
+      )}
 
       <Card>
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>Ventas ({ventasFiltradas.length})</Typography>
+          {/* Búsqueda */}
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Buscar por folio, cliente o vendedor..."
+            value={busqueda}
+            onChange={(e) => {
+              setBusqueda(e.target.value);
+              setPage(0);
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
 
-          <Tabs value={tabActual} onChange={handleChangeTab} sx={{ mb: 2 }} variant="scrollable" scrollButtons="auto">
-            <Tab label={`Todas (${contarVentas('todas')})`} icon={<ReceiptIcon />} iconPosition="start" />
-            <Tab label={`Completadas (${contarVentas('completadas')})`} icon={<Chip label="C" size="small" color="success" />} iconPosition="start" />
-            <Tab label={`Canceladas (${contarVentas('canceladas')})`} icon={<Chip label="X" size="small" color="error" />} iconPosition="start" />
-            <Tab label={`Efectivo (${contarVentas('efectivo')})`} icon={<Chip label="E" size="small" color="success" />} iconPosition="start" />
-            <Tab label={`Tarjeta (${contarVentas('tarjeta')})`} icon={<Chip label="T" size="small" color="info" />} iconPosition="start" />
-            <Tab label={`Transferencia (${contarVentas('transferencia')})`} icon={<Chip label="TR" size="small" color="primary" />} iconPosition="start" />
+          {/* Tabs */}
+          <Tabs value={tabActual} onChange={handleChangeTab} sx={{ mb: 2 }} variant="scrollable">
+            <Tab label={`Todas (${contarVentas('todas')})`} />
+            <Tab label={`Completadas (${contarVentas('completadas')})`} />
+            <Tab label={`Canceladas (${contarVentas('canceladas')})`} />
+            <Tab label={`Efectivo (${contarVentas('efectivo')})`} />
+            <Tab label={`Tarjeta (${contarVentas('tarjeta')})`} />
+            <Tab label={`Transferencia (${contarVentas('transferencia')})`} />
           </Tabs>
 
+          {/* Tabla */}
           <TableContainer>
             <Table>
               <TableHead>
@@ -429,54 +493,93 @@ const ReimpresionComprobantes = () => {
                   <TableCell>Fecha</TableCell>
                   <TableCell>Cliente</TableCell>
                   <TableCell>Vendedor</TableCell>
-                  <TableCell align="right">Total</TableCell>
                   <TableCell>Método</TableCell>
                   <TableCell>Estado</TableCell>
+                  <TableCell align="right">Total</TableCell>
                   <TableCell align="center">Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={8} align="center">Cargando...</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">Cargando...</TableCell>
+                  </TableRow>
                 ) : ventasPaginadas.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} align="center"><Typography color="text.secondary">No se encontraron ventas</Typography></TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      <Typography color="text.secondary">No hay ventas</Typography>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   ventasPaginadas.map((venta) => (
                     <TableRow key={venta.id} hover>
-                      <TableCell><Chip label={venta.folio} size="small" color="primary" /></TableCell>
-                      <TableCell>{format(new Date(venta.fecha_venta), 'dd/MM/yyyy HH:mm')}</TableCell>
-                      <TableCell>{venta.cliente_nombre || 'Público General'}</TableCell>
-                      <TableCell>{venta.vendedor_nombre || '-'}</TableCell>
-                      <TableCell align="right"><Typography fontWeight="bold">Q{parseFloat(venta.total).toFixed(2)}</Typography></TableCell>
                       <TableCell>
-                        <Chip label={venta.metodo_pago} size="small"
-                          color={venta.metodo_pago === 'efectivo' ? 'success' : venta.metodo_pago === 'tarjeta' ? 'info' : 'primary'}
+                        <Chip label={venta.folio} size="small" color="primary" />
+                      </TableCell>
+                      <TableCell>
+                        {venta.fecha_venta ? format(new Date(venta.fecha_venta), 'dd/MM/yyyy HH:mm') : 'N/A'}
+                      </TableCell>
+                      <TableCell>{venta.cliente_nombre || 'Público'}</TableCell>
+                      <TableCell>{venta.vendedor_nombre || venta.usuario_nombre || 'N/A'}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={venta.metodo_pago}
+                          size="small"
+                          color={
+                            venta.metodo_pago === 'efectivo' ? 'success' :
+                            venta.metodo_pago === 'tarjeta' ? 'info' : 'primary'
+                          }
                         />
                       </TableCell>
                       <TableCell>
-                        <Chip label={venta.estado === 'cancelada' ? 'Cancelada' : 'Completada'} size="small"
-                          color={venta.estado === 'cancelada' ? 'error' : 'success'}
+                        <Chip
+                          label={venta.estado}
+                          size="small"
+                          color={venta.estado === 'completada' ? 'success' : 'error'}
                         />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="bold">
+                          Q{parseFloat(venta.total).toFixed(2)}
+                        </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                          <IconButton size="small" color="primary" onClick={() => handleVerDetalle(venta)} title="Ver detalle">
-                            <VisibilityIcon />
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => handleVerDetalle(venta)}
+                          title="Ver detalle"
+                        >
+                          <VisibilityIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="secondary"
+                          onClick={() => handleImprimirDirecto(venta)}
+                          title="Imprimir"
+                          disabled={venta.estado === 'cancelada'}
+                        >
+                          <PrintIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="info"
+                          onClick={() => handleDescargarPDF(venta)}
+                          title="Descargar PDF"
+                          disabled={venta.estado === 'cancelada'}
+                        >
+                          <PdfIcon />
+                        </IconButton>
+                        {venta.estado === 'completada' && (
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleOpenCancelar(venta)}
+                            title="Cancelar venta"
+                          >
+                            <CancelIcon />
                           </IconButton>
-                          {venta.estado !== 'cancelada' && (
-                            <>
-                              <IconButton size="small" color="error" onClick={() => handleImprimirDirecto(venta)} title="Imprimir">
-                                <PrintIcon />
-                              </IconButton>
-                              <IconButton size="small" color="success" onClick={() => handleDescargarPDF(venta)} title="PDF">
-                                <PdfIcon />
-                              </IconButton>
-                              <IconButton size="small" color="warning" onClick={() => handleOpenCancelar(venta)} title="Cancelar venta">
-                                <CancelIcon />
-                              </IconButton>
-                            </>
-                          )}
-                        </Box>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -485,6 +588,7 @@ const ReimpresionComprobantes = () => {
             </Table>
           </TableContainer>
 
+          {/* Paginación */}
           <TablePagination
             component="div"
             count={ventasFiltradas.length}
@@ -492,129 +596,143 @@ const ReimpresionComprobantes = () => {
             onPageChange={handleChangePage}
             rowsPerPage={rowsPerPage}
             onRowsPerPageChange={handleChangeRowsPerPage}
-            labelRowsPerPage="Filas por página:"
+            labelRowsPerPage="Filas:"
             labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
             rowsPerPageOptions={[5, 10, 25, 50, 100]}
           />
         </CardContent>
       </Card>
 
-      {/* Diálogo Cancelar */}
-      <Dialog open={openCancelar} onClose={() => setOpenCancelar(false)} maxWidth="sm" fullWidth>
+      {/* Diálogo: Detalle de Venta */}
+      <Dialog open={openDetalle} onClose={() => setOpenDetalle(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'error.main' }}>
-            <CancelIcon />
-            <Typography variant="h6">Cancelar Venta</Typography>
-          </Box>
+          Detalle de Venta - {ventaSeleccionada?.folio}
         </DialogTitle>
         <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <Typography variant="body2" gutterBottom><strong>¿Estás seguro de cancelar esta venta?</strong></Typography>
-            <Typography variant="body2">Esta acción devolverá el stock y marcará la venta como cancelada.</Typography>
-          </Alert>
-          {ventaACancelar && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2"><strong>Folio:</strong> {ventaACancelar.folio}</Typography>
-              <Typography variant="body2"><strong>Cliente:</strong> {ventaACancelar.cliente_nombre || 'Público General'}</Typography>
-              <Typography variant="body2"><strong>Total:</strong> Q{parseFloat(ventaACancelar.total).toFixed(2)}</Typography>
-              <Typography variant="body2"><strong>Fecha:</strong> {format(new Date(ventaACancelar.fecha_venta), 'dd/MM/yyyy HH:mm')}</Typography>
-            </Box>
+          {ventaSeleccionada && (
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Fecha:</Typography>
+                <Typography variant="body1">
+                  {ventaSeleccionada.fecha_venta ? format(new Date(ventaSeleccionada.fecha_venta), 'dd/MM/yyyy HH:mm') : 'N/A'}
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Cliente:</Typography>
+                <Typography variant="body1">{ventaSeleccionada.cliente_nombre || 'Público General'}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Vendedor:</Typography>
+                <Typography variant="body1">{ventaSeleccionada.vendedor_nombre || ventaSeleccionada.usuario_nombre || 'N/A'}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Método de Pago:</Typography>
+                <Chip label={ventaSeleccionada.metodo_pago} size="small" color="primary" />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Estado:</Typography>
+                <Chip 
+                  label={ventaSeleccionada.estado} 
+                  size="small" 
+                  color={ventaSeleccionada.estado === 'completada' ? 'success' : 'error'} 
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Productos</Typography>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Producto</TableCell>
+                        <TableCell align="center">Cantidad</TableCell>
+                        <TableCell align="right">Precio Unit.</TableCell>
+                        <TableCell align="right">Subtotal</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {ventaSeleccionada.productos?.map((producto, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{producto.producto_nombre}</TableCell>
+                          <TableCell align="center">{producto.cantidad}</TableCell>
+                          <TableCell align="right">Q{parseFloat(producto.precio_unitario).toFixed(2)}</TableCell>
+                          <TableCell align="right">Q{parseFloat(producto.subtotal).toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                  <Typography variant="h6" align="right">
+                    Total: Q{parseFloat(ventaSeleccionada.total).toFixed(2)}
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenCancelar(false)} color="inherit">No, mantener venta</Button>
-          <Button onClick={handleCancelarVenta} variant="contained" color="error" disabled={loading}>
-            Sí, cancelar venta
+          <Button onClick={() => setOpenDetalle(false)}>Cerrar</Button>
+          <Button 
+            onClick={handleImprimir} 
+            variant="contained" 
+            startIcon={<PrintIcon />}
+            disabled={ventaSeleccionada?.estado === 'cancelada'}
+          >
+            Imprimir
+          </Button>
+          <Button 
+            onClick={() => {
+              handleDescargarPDF(ventaSeleccionada);
+              setOpenDetalle(false);
+            }} 
+            variant="contained" 
+            color="secondary"
+            startIcon={<PdfIcon />}
+            disabled={ventaSeleccionada?.estado === 'cancelada'}
+          >
+            Descargar PDF
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Diálogo Detalle */}
-      <Dialog open={openDetalle} onClose={() => setOpenDetalle(false)} maxWidth="sm" fullWidth>
-        {ventaSeleccionada && (
-          <>
-            <DialogTitle>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <PrintIcon />
-                <Typography variant="h6">Comprobante {ventaSeleccionada.folio}</Typography>
-                {ventaSeleccionada.estado === 'cancelada' && <Chip label="CANCELADA" color="error" size="small" />}
-              </Box>
-            </DialogTitle>
-            <DialogContent>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Fecha</Typography>
-                  <Typography variant="body1">{format(new Date(ventaSeleccionada.fecha_venta), 'dd/MM/yyyy HH:mm')}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Cliente</Typography>
-                  <Typography variant="body1">{ventaSeleccionada.cliente_nombre || 'Público General'}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Vendedor</Typography>
-                  <Typography variant="body1">{ventaSeleccionada.usuario_nombre || ventaSeleccionada.vendedor_nombre || '-'}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Método</Typography>
-                  <Typography variant="body1">{ventaSeleccionada.metodo_pago}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Estado</Typography>
-                  <Chip label={ventaSeleccionada.estado === 'cancelada' ? 'Cancelada' : 'Completada'} size="small"
-                    color={ventaSeleccionada.estado === 'cancelada' ? 'error' : 'success'}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>Productos</Typography>
-                  <TableContainer>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Producto</TableCell>
-                          <TableCell align="center">Cant.</TableCell>
-                          <TableCell align="right">Total</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {ventaSeleccionada.productos?.length > 0 ? (
-                          ventaSeleccionada.productos.map((p, index) => (
-                            <TableRow key={index}>
-                              <TableCell>{p.producto_nombre}</TableCell>
-                              <TableCell align="center">{p.cantidad}</TableCell>
-                              <TableCell align="right">Q{parseFloat(p.subtotal).toFixed(2)}</TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow><TableCell colSpan={3} align="center"><Typography color="text.secondary">Sin productos</Typography></TableCell></TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Grid>
-                <Grid item xs={12}>
-                  <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography>Subtotal:</Typography>
-                      <Typography>Q{parseFloat(ventaSeleccionada.subtotal || ventaSeleccionada.total).toFixed(2)}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                      <Typography variant="h6">TOTAL:</Typography>
-                      <Typography variant="h6" color="primary">Q{parseFloat(ventaSeleccionada.total).toFixed(2)}</Typography>
-                    </Box>
-                  </Box>
-                </Grid>
-              </Grid>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setOpenDetalle(false)}>Cerrar</Button>
-              {ventaSeleccionada.estado !== 'cancelada' && (
-                <Button variant="contained" startIcon={<PrintIcon />} onClick={handleImprimir} color="primary">
-                  Imprimir Comprobante
-                </Button>
-              )}
-            </DialogActions>
-          </>
-        )}
+      {/* Diálogo: Confirmar Cancelación */}
+      <Dialog open={openCancelar} onClose={() => setOpenCancelar(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: 'error.main', color: 'white' }}>
+          ⚠️ Cancelar Venta
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {ventaACancelar && (
+            <>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  Esta acción cancelará la venta y devolverá el stock de los productos.
+                </Typography>
+              </Alert>
+              <Typography variant="body1">
+                <strong>Folio:</strong> {ventaACancelar.folio}
+              </Typography>
+              <Typography variant="body1">
+                <strong>Cliente:</strong> {ventaACancelar.cliente_nombre || 'Público General'}
+              </Typography>
+              <Typography variant="body1">
+                <strong>Total:</strong> Q{parseFloat(ventaACancelar.total).toFixed(2)}
+              </Typography>
+              <Typography variant="body1">
+                <strong>Fecha:</strong> {ventaACancelar.fecha_venta ? format(new Date(ventaACancelar.fecha_venta), 'dd/MM/yyyy HH:mm') : 'N/A'}
+              </Typography>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenCancelar(false)}>No, mantener</Button>
+          <Button onClick={handleCancelarVenta} variant="contained" color="error">
+            Sí, cancelar venta
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );
